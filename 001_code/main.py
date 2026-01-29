@@ -36,6 +36,7 @@ IMX415:
 
 import sys
 import os
+import time
 
 def main():
     """Основная функция приложения"""
@@ -99,6 +100,63 @@ def main():
     print(f"🔧 Отладка: {'ВКЛ' if settings.debug.enabled else 'ВЫКЛ'}")
     print(f"🎯 Контроль углов: {settings.capture.max_angle}° макс.")
     print(f"📁 Лог-файл: {logger.get_log_file_path()}")
+    
+    # Запускаем стрим, если включен
+    if settings.stream.enabled:
+        print(f"\n🎬 Запуск стрима на порту {settings.stream.port}...")
+        print(f"🎬 Разрешение: {settings.stream.width}x{settings.stream.height} @ {settings.stream.fps} FPS")
+        
+        try:
+            from core.stream_manager_universal import UniversalStreamManager, UniversalStreamConfig
+            
+            # Создаем конфигурацию для стрима
+            stream_config = UniversalStreamConfig(
+                camera_type=settings.camera.camera_type,
+                camera_index=0,
+                target_width=settings.stream.width,
+                target_height=settings.stream.height,
+                max_fps=settings.stream.fps,
+                show_fps=True,
+                show_status=True,
+                show_frame_info=False,
+                low_latency=settings.stream.low_latency,
+                enable_visualization=True,
+                enable_capture=True,
+                capture_dir=settings.capture.output_dir,
+                file_prefix="stream"
+            )
+            
+            # Создаем менеджер стрима
+            stream_manager = UniversalStreamManager(stream_config, logger)
+            
+            # Запускаем стрим
+            if stream_manager.start():
+                print(f"✅ Стрим запущен на порту {settings.stream.port}")
+                
+                # Устанавливаем обработчик кадров для логирования
+                def on_frame_received(frame):
+                    status = stream_manager.get_status()
+                    if status.fps > 0:
+                        logger.debug(f"Стрим: {status.fps:.1f} FPS, разрешение: {status.resolution}")
+                
+                stream_manager.set_frame_callback(on_frame_received)
+                
+                # Ждем, пока пользователь не остановит стрим
+                print("🎬 Стрим работает. Нажмите Ctrl+C для остановки...")
+                try:
+                    while stream_manager.is_running():
+                        time.sleep(0.1)
+                except KeyboardInterrupt:
+                    print("\n🛑 Остановка стрима...")
+                
+                stream_manager.stop()
+                print("✅ Стрим остановлен")
+            else:
+                print("❌ Не удалось запустить стрим")
+                
+        except Exception as e:
+            print(f"❌ Ошибка запуска стрима: {e}")
+            logger.error(f"Ошибка запуска стрима: {e}")
     
     # Запускаем съемку по нажатию клавиши
     print("\n📸 Запуск съемки фото по нажатию клавиши...")

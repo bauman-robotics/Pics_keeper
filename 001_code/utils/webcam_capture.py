@@ -245,6 +245,53 @@ class WebcamCapture:
         print("📸 Съемка!")
         return self.capture_photo(save_dir, jpeg_quality)
     
+    def capture_frame(self) -> Optional[np.ndarray]:
+        """Захват одного кадра для стрима"""
+        if not self.check_ffmpeg():
+            return None
+        
+        try:
+            # Временный файл для захвата кадра
+            temp_file = '/tmp/webcam_frame.jpg'
+            
+            # Команда ffmpeg для захвата одного кадра
+            ffmpeg_cmd = [
+                'ffmpeg',
+                '-f', 'v4l2',
+                '-video_size', f'{self.capture_size[0]}x{self.capture_size[1]}',
+                '-i', '/dev/video0',
+                '-frames', '1',
+                '-q:v', '2',  # Высокое качество для стрима
+                '-y',
+                temp_file
+            ]
+            
+            # Выполняем команду
+            result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True, timeout=5)
+            
+            if result.returncode == 0 and os.path.exists(temp_file):
+                # Читаем изображение
+                frame = cv2.imread(temp_file)
+                
+                # Удаляем временный файл
+                try:
+                    os.remove(temp_file)
+                except:
+                    pass
+                
+                if frame is not None:
+                    return frame
+            
+        except Exception as e:
+            if self.debug:
+                print(f"❌ Ошибка захвата кадра: {e}")
+        
+        return None
+    
+    def initialize(self) -> bool:
+        """Инициализация веб-камеры"""
+        return self.select_camera()
+    
     def cleanup(self):
         """Очистка ресурсов"""
         print("✅ Веб-камера остановлена")
