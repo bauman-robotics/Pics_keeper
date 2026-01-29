@@ -205,3 +205,12 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# =========================================
+venv/
+000_info/
+002_logs/
+003_pics/
+01_pics_keeper.py
+
+     
