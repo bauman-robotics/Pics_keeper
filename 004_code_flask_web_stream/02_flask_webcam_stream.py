@@ -945,6 +945,13 @@ def main():
     # Создаем и запускаем стример
     try:
         streamer = CameraStreamer(config, logger, camera)
+
+        # ✅ АВТОЗАПУСК СТРИМА ПРИ СТАРТЕ СЕРВЕРА
+        if config.get('camera', {}).get('auto_start', False):
+            print("🚀 Автозапуск стрима включен - запускаю...")
+            logger.log_info("Автозапуск стрима включен в конфигурации")
+            streamer.start_stream_internal()
+
         streamer.run()
     except Exception as e:
         print(f"❌ Ошибка создания CameraStreamer: {e}")

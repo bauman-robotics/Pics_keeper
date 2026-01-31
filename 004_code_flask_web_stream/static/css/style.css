@@ -113,9 +113,14 @@ body {
     border-color: #a0aec0;
 }
 
-.camera-card.selected:hover .selection-square {
+/* .camera-card.selected:hover .selection-square {
     border-color: #38a169;
-}
+}   */
+
+.camera-card.selected {
+    background: rgba(56, 161, 105, 0.1);
+    border-color: #38a169;
+}   
 
 .camera-info {
     flex: 1;

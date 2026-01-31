@@ -4,15 +4,38 @@ class StreamController {
         this.statusInterval = null;
         this.videoElement = document.getElementById('video-stream');
         this.currentDevicePath = null;
+
+        // Сразу показываем базовую информацию
+        this.updateInitialDisplay();
+
         this.init();
     }
+
+    updateInitialDisplay() {
+        // Показываем базовый статус
+        const cameraStatus = document.getElementById('camera-ready-status');
+        if (cameraStatus) {
+            cameraStatus.innerHTML = '<span class="status-indicator ready"></span><strong>Проверка...</strong>';
+        }
+        
+        // Показываем текущую камеру
+        const currentCameraDisplay = document.getElementById('current-camera-display');
+        if (currentCameraDisplay) {
+            currentCameraDisplay.innerHTML = '<span style="color: #48bb78;">Загрузка...</span>';
+        }
+    }    
     
     async init() {
-        await this.loadCameras();
+        // Сначала проверяем статус, чтобы получить текущее устройство с сервера
         await this.checkStatus();
+        
+        // Затем загружаем камеры (теперь currentDevicePath уже определен)
+        await this.loadCameras();
+        
+        // Запускаем обновление статуса
         this.startStatusUpdates();
     }
-    
+
     async loadCameras() {
         try {
             console.log('🔄 Загрузка списка камер...');
@@ -41,57 +64,112 @@ class StreamController {
     }
     
     async determineCurrentDevice(deviceId) {
-        if (typeof deviceId === 'number') {
-            // Если это число (0, 1, 2...) - преобразуем в /dev/videoX
+        console.log('🔍 Определение устройства из:', deviceId, typeof deviceId);
+        
+        // Добавляем отладку
+        if (deviceId === undefined || deviceId === null) {
+            console.log('⚠️ deviceId не определен');
+            this.currentDevicePath = '/dev/video0';
+        } 
+        else if (typeof deviceId === 'number') {
             this.currentDevicePath = `/dev/video${deviceId}`;
-        } else if (deviceId && deviceId.startsWith('/dev/')) {
-            this.currentDevicePath = deviceId;
-        } else {
-            // Пробуем получить из API статуса
-            try {
-                const response = await fetch('/api/stream/status');
-                const status = await response.json();
-                this.currentDevicePath = status.camera_device || '/dev/video0';
-            } catch {
+            console.log(`✅ Число ${deviceId} → ${this.currentDevicePath}`);
+        } 
+        else if (typeof deviceId === 'string') {
+            // Пробуем разные форматы
+            if (deviceId.startsWith('/dev/')) {
+                this.currentDevicePath = deviceId;
+                console.log(`✅ Путь ${deviceId} → ${this.currentDevicePath}`);
+            } 
+            else if (!isNaN(parseInt(deviceId))) {
+                // Если строка содержит число
+                this.currentDevicePath = `/dev/video${parseInt(deviceId)}`;
+                console.log(`✅ Строка-число "${deviceId}" → ${this.currentDevicePath}`);
+            }
+            else {
+                console.log(`⚠️ Неизвестный формат строки: "${deviceId}"`);
                 this.currentDevicePath = '/dev/video0';
             }
         }
-        console.log(`🎯 Текущее устройство: ${this.currentDevicePath}`);
+        else {
+            console.log(`⚠️ Неизвестный тип: ${typeof deviceId}, значение: ${deviceId}`);
+            this.currentDevicePath = '/dev/video0';
+        }
+        
+        console.log(`🎯 Установлено текущее устройство: ${this.currentDevicePath}`);
     }
     
     renderCameraList(cameras) {
         const container = document.getElementById('camera-list');
         if (!container) return;
         
-        container.innerHTML = cameras.map(camera => `
-            <div class="camera-card ${camera.device_path === this.currentDevicePath ? 'current' : ''}" 
-                 onclick="selectCamera('${camera.device_path}')"
-                 title="Нажмите для выбора">
-                <div class="camera-header">
-                    <span class="camera-icon">📷</span>
-                    <span class="camera-name">${this.escapeHtml(camera.name || camera.device_path)}</span>
+        if (!cameras || cameras.length === 0) {
+            container.innerHTML = '<div class="no-cameras">Камеры не найдены</div>';
+            return;
+        }
+        
+        console.log('📋 Рендеринг списка камер:', {
+            total: cameras.length,
+            currentDevice: this.currentDevicePath,
+            cameras: cameras.map(c => ({ path: c.device_path, name: c.name }))
+        });
+        
+        container.innerHTML = cameras.map(camera => {
+            let cameraName = camera.name || camera.device_path;
+            cameraName = cameraName.replace(/\(usb-[^)]+\)/g, '').trim();
+            cameraName = cameraName.replace(/\(046d:0825\)/g, '').trim();
+            cameraName = cameraName.replace(/:/g, '').trim();
+            
+            if (cameraName.length > 25) {
+                cameraName = cameraName.substring(0, 22) + '...';
+            }
+            
+            const isSelected = camera.device_path === this.currentDevicePath;
+            
+            // Отладка для каждой камеры
+            if (isSelected) {
+                console.log(`✅ Найдена текущая камера: ${camera.device_path} (${cameraName})`);
+            }
+            
+            return `
+                <div class="camera-card ${isSelected ? 'selected' : ''}" 
+                    onclick="handleCameraChange('${camera.device_path}')"
+                    title="${camera.name || camera.device_path}">
+                    <div class="camera-selector">
+                        <div class="selection-square ${isSelected ? 'selected' : ''}">
+                            ${isSelected ? '✓' : ''}
+                        </div>
+                        <div class="camera-info">
+                            <div class="camera-header">
+                                <span class="camera-name">${this.escapeHtml(cameraName)}</span>
+                                ${isSelected ? '<span class="current-badge">Текущая</span>' : ''}
+                            </div>
+                            <div class="camera-path">${camera.device_path}</div>
+                        </div>
+                    </div>
                 </div>
-                <div class="camera-details">
-                    <div class="camera-path">${camera.device_path}</div>
-                    ${camera.device_path === this.currentDevicePath ? '<div class="current-badge">Текущая</div>' : ''}
-                </div>
-                <div class="camera-formats">
-                    <small>Форматы: ${camera.formats?.join(', ') || 'неизвестно'}</small>
-                </div>
-            </div>
-        `).join('');
+            `;
+        }).join('');
     }
     
     updateCurrentCameraDisplay(cameras) {
         const currentCamera = cameras.find(cam => cam.device_path === this.currentDevicePath);
-        const displayElement = document.getElementById('current-camera');
+        const displayElement = document.getElementById('current-camera-display');
         
-        if (displayElement) {
-            if (currentCamera) {
-                displayElement.textContent = `${currentCamera.name} (${currentCamera.device_path})`;
-            } else {
-                displayElement.textContent = `Устройство ${this.currentDevicePath}`;
+        if (displayElement && currentCamera) {
+            let cameraName = currentCamera.name || currentCamera.device_path;
+            cameraName = cameraName.replace(/\(usb-[^)]+\)/g, '').trim();
+            cameraName = cameraName.replace(/\(046d:0825\)/g, '').trim();
+            cameraName = cameraName.replace(/:/g, '').trim();
+            
+            if (cameraName.length > 20) {
+                cameraName = cameraName.substring(0, 17) + '...';
             }
+            
+            displayElement.innerHTML = `
+                <span style="color: #48bb78; font-weight: bold;">${cameraName}</span>
+                <span style="color: #a0aec0; font-size: 0.9em; margin-left: 5px;">(${currentCamera.device_path})</span>
+            `;
         }
     }
     
@@ -299,23 +377,19 @@ async function selectCamera(devicePath) {
         
         if (data.status === 'success') {
             console.log(`✅ Камера изменена на ${devicePath}`);
-            //alert(`✅ Камера изменена на ${devicePath}`);
-            streamController?.loadCameras();
-            streamController?.checkStatus();
+            // БЕЗ ALERT: streamController?.loadCameras();
+            // БЕЗ ALERT: streamController?.checkStatus();
             
-            // Если стрим был активен, перезапускаем его
-            if (data.stream_active) {
-                setTimeout(() => {
-                    streamController?.refreshVideo();
-                }, 500);
-            }
+            // Используем handleCameraChange для обновления интерфейса
+            handleCameraChange(devicePath);
         } else {
             console.error('❌ Ошибка выбора камеры:', data.message);
-            alert('❌ Ошибка: ' + data.message);
+            // Можно оставить alert для ошибок или убрать
+            // alert('❌ Ошибка: ' + data.message);
         }
     } catch (error) {
         console.error('❌ Ошибка выбора камеры:', error);
-        alert('❌ Ошибка выбора камеры: ' + error.message);
+        // alert('❌ Ошибка выбора камеры: ' + error.message);
     }
 }
 

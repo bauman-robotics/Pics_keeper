@@ -41,8 +41,8 @@
                     </span>
                 </div>
                 <div class="status-item">
-                    <span>Текущая:</span>
-                    <span id="current-camera-display" class="status-value">Загрузка...</span>
+                    <span>Текущая камера:</span>
+                    <span id="current-camera-display" class="status-value" style="color: #48bb78; font-weight: bold;">Загрузка...</span>
                 </div>
             </div>
         </div>
@@ -590,7 +590,6 @@ StreamController.prototype.updateCurrentCameraDisplay = function(cameras) {
     }
 };
 
-// В handleCameraChange убираем уведомление
 async function handleCameraChange(devicePath) {
     console.log(`🎯 Смена камеры на: ${devicePath}`);
     
@@ -604,10 +603,16 @@ async function handleCameraChange(devicePath) {
         const data = await response.json();
         
         if (data.status === 'success') {
-            // БЕЗ УВЕДОМЛЕНИЙ - только обновление интерфейса
+            console.log(`✅ Камера изменена на ${devicePath}`);
+            
             if (streamController) {
+                // Обновляем текущее устройство
                 streamController.currentDevicePath = devicePath;
+                
+                // Перезагружаем камеры
                 await streamController.loadCameras();
+                
+                // Проверяем статус
                 await streamController.checkStatus();
                 
                 // Если стрим был активен, обновляем видео
@@ -619,10 +624,6 @@ async function handleCameraChange(devicePath) {
             }
         } else {
             console.error('❌ Ошибка смены камеры:', data.message);
-            // Перезагружаем список камер для сброса
-            if (streamController) {
-                setTimeout(() => streamController.loadCameras(), 500);
-            }
         }
     } catch (error) {
         console.error('❌ Ошибка смены камеры:', error);

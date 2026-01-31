@@ -16,6 +16,7 @@ camera:
   backend: "auto"           # Бэкенд: "auto", "v4l2", "ffmpeg", "direct"
   direct_path: "/dev/video0" # Прямой путь к устройству (используется при backend: "direct")
   
+  
   # Разрешение и качество
   #width: 1280               # Ширина кадра
   #height: 720               # Высота кадра
@@ -41,6 +42,7 @@ stream:
   max_error_count: 20       # Максимальное количество ошибок чтения
   frame_log_interval: 60    # Интервал логирования (каждые N кадров)
   buffer_size: 30  # Размер буфера
+  auto_start: true  # ← НОВЫЙ ПАРАМЕТР
 
 # Пути
 paths:
