@@ -262,8 +262,11 @@ class CameraStreamer:
     
     def capture_frames(self):
         """Захват кадров с камеры в буфер"""
-        print("📹 Запущен поток захвата кадров")
+        print(f"📹 Запущен поток захвата кадров (ID: {threading.get_ident()})")
+        print(f"📊 Начальный размер буфера: {self.frame_buffer.qsize()}")
+        
         self.buffer_active = True
+        frames_captured = 0
         
         while self.stream_active and self.buffer_active:
             try:
@@ -272,37 +275,45 @@ class CameraStreamer:
                         ret, frame = self.current_camera.read()
                         if ret and frame is not None:
                             self.frame_count += 1
+                            frames_captured += 1
+                            
+                            # Логируем каждые 30 кадров
+                            if frames_captured % 30 == 0:
+                                print(f"📊 Захвачено кадров: {frames_captured}, Размер буфера: {self.frame_buffer.qsize()}")
                             
                             # Сохраняем последний кадр
                             with self.frame_lock:
                                 self.last_frame = frame.copy()
                             
-                            # Добавляем в буфер
+                            # Добавляем в буфер с проверкой на переполнение
                             try:
-                                # Если буфер полный, очищаем его
+                                # Если буфер полон, НЕ ОЧИЩАЕМ его полностью, а просто пропускаем старый кадр
                                 if self.frame_buffer.full():
-                                    while not self.frame_buffer.empty():
-                                        try:
-                                            self.frame_buffer.get_nowait()
-                                        except:
-                                            break
+                                    # Удаляем только ОДИН старый кадр
+                                    try:
+                                        self.frame_buffer.get_nowait()
+                                        if frames_captured % 30 == 0:
+                                            print(f"🔄 Буфер полон, удален старый кадр")
+                                    except queue.Empty:
+                                        pass
                                 
                                 self.frame_buffer.put_nowait(frame)
                             except Exception as e:
-                                print(f"⚠️  Ошибка буфера: {e}")
+                                print(f"⚠️ Ошибка буфера: {e}")
                         else:
-                            # Ошибка чтения кадра
-                            print("⚠️  Не удалось прочитать кадр с камеры")
-                            time.sleep(0.1)
+                            if frames_captured % 10 == 0:  # Реже логируем ошибки
+                                print(f"⚠️ Не удалось прочитать кадр (кадр {frames_captured})")
+                            time.sleep(0.033)  # ~30 FPS
                     else:
-                        # Камера не доступна
-                        print("⚠️  Камера недоступна, ожидание...")
+                        if frames_captured % 10 == 0:
+                            print(f"❌ Камера недоступна")
                         time.sleep(0.5)
             except Exception as e:
-                self.logger.log_error(f"Ошибка захвата кадра: {e}")
+                if frames_captured % 10 == 0:
+                    print(f"💥 Ошибка захвата: {e}")
                 time.sleep(0.5)
         
-        print("📹 Поток захвата кадров остановлен")
+        print(f"📹 Поток захвата кадров остановлен. Всего кадров: {frames_captured}")
     
     def generate_from_buffer(self):
         """Генератор для получения кадров из буфера"""
@@ -352,37 +363,83 @@ class CameraStreamer:
     def start_stream_internal(self):
         """Внутренний запуск стрима"""
         if not self.stream_active:
+            print("=== DEBUG: start_stream_internal() called ===")
+            print(f"stream_active before: {self.stream_active}")
+            print(f"📊 Размер буфера перед запуском: {self.frame_buffer.qsize()}")
+            
+            # ПРИНУДИТЕЛЬНЫЙ СБРОС БУФЕРА ПЕРЕД ЗАПУСКОМ
+            if not self.frame_buffer.empty():
+                print("⚠️ Буфер не пуст перед запуском, очищаем...")
+                cleared = 0
+                while not self.frame_buffer.empty():
+                    try:
+                        self.frame_buffer.get_nowait()
+                        cleared += 1
+                    except queue.Empty:
+                        break
+                print(f"✅ Очищено {cleared} элементов из буфера")
+            
             self.stream_active = True
+            self.buffer_active = True
             self.frame_count = 0
             
-            # Запускаем поток захвата кадров
+            # Убедимся, что старый поток завершен
+            if self.buffer_thread and self.buffer_thread.is_alive():
+                print("⚠️ Старый поток все еще активен, останавливаем...")
+                self.buffer_active = False
+                self.buffer_thread.join(timeout=1.0)
+                self.buffer_thread = None
+            
+            # Запускаем новый поток захвата кадров
             self.buffer_thread = threading.Thread(target=self.capture_frames, daemon=True)
             self.buffer_thread.start()
             
-            print("📹 Стрим запущен")
+            # Ждем немного чтобы поток успел стартовать
+            time.sleep(0.1)
+            
+            print("✅ Стрим запущен")
             self.logger.log_info("Стрим видеопотока запущен")
+            
+            # Выводим состояние через 0.5 секунды
+            def delayed_check():
+                time.sleep(0.5)
+                print(f"📊 Проверка через 0.5с: Поток жив: {self.buffer_thread.is_alive() if self.buffer_thread else False}, "
+                    f"Буфер: {self.frame_buffer.qsize()}")
+            
+            threading.Thread(target=delayed_check, daemon=True).start()
     
     def stop_stream_internal(self):
         """Внутренняя остановка стрима"""
         if self.stream_active:
+            print("=== DEBUG: stop_stream_internal() called ===")
+            print(f"📊 Текущий размер буфера: {self.frame_buffer.qsize()}")
+            
+            # Сначала останавливаем захват
             self.stream_active = False
             self.buffer_active = False
             
-            # Ожидаем завершения потока захвата
-            if self.buffer_thread:
-                self.buffer_thread.join(timeout=3.0)
-                self.buffer_thread = None
-            
-            # Очищаем буфер полностью
+            # Полностью очищаем буфер ПЕРЕД остановкой потока
+            print("🧹 Очистка буфера...")
+            buffer_items_cleared = 0
             while not self.frame_buffer.empty():
                 try:
                     self.frame_buffer.get_nowait()
+                    buffer_items_cleared += 1
                 except queue.Empty:
                     break
+            print(f"✅ Очищено элементов буфера: {buffer_items_cleared}")
+            
+            # Затем останавливаем поток
+            if self.buffer_thread and self.buffer_thread.is_alive():
+                print("⏳ Ожидание завершения потока захвата...")
+                self.buffer_thread.join(timeout=2.0)
+                if self.buffer_thread.is_alive():
+                    print("⚠️ Поток захчета не завершился вовремя")
+                self.buffer_thread = None
             
             print("📹 Стрим остановлен")
             self.logger.log_info("Стрим видеопотока остановлен")
-    
+        
     def restart_stream_async(self):
         """Асинхронный перезапуск стрима"""
         time.sleep(0.5)
@@ -714,6 +771,36 @@ class CameraStreamer:
                 else:
                     return jsonify({'status': 'error', 'message': 'Не удалось прочитать кадр'})
 
+        @self.app.route('/api/stream/diagnostics')
+        def stream_diagnostics():
+            """Диагностика состояния стрима"""
+            return jsonify({
+                'status': 'success',
+                'diagnostics': self.get_stream_state_info()
+            })
+
+        @self.app.route('/api/stream/test_generator')
+        def test_generator():
+            """Тест генератора кадров"""
+            def generate_test():
+                try:
+                    frame_count = 0
+                    while self.stream_active:
+                        try:
+                            frame = self.frame_buffer.get(timeout=2.0)
+                            frame_count += 1
+                            yield f"data: Кадр {frame_count} получен, размер буфера: {self.frame_buffer.qsize()}\n\n"
+                        except queue.Empty:
+                            yield f"data: Буфер пуст (таймаут), активных потоков: {self.active_streams}\n\n"
+                            time.sleep(0.1)
+                        except Exception as e:
+                            yield f"data: Ошибка: {str(e)}\n\n"
+                            time.sleep(0.1)
+                except Exception as e:
+                    yield f"data: Генератор завершен: {str(e)}\n\n"
+            
+            return Response(generate_test(), mimetype='text/event-stream')
+
     def run(self):
         """Запуск сервера"""
         try:
@@ -758,6 +845,21 @@ class CameraStreamer:
                         print(f"⚠️  Ошибка при освобождении камеры: {e}")
         
         print("👋 Сервер остановлен")
+
+    def get_stream_state_info(self):
+        """Получение информации о состоянии стрима для диагностики"""
+        return {
+            'stream_active': self.stream_active,
+            'buffer_active': self.buffer_active,
+            'frame_count': self.frame_count,
+            'buffer_size': self.frame_buffer.qsize(),
+            'buffer_maxsize': self.frame_buffer.maxsize,
+            'camera_opened': self.current_camera.isOpened() if self.current_camera else False,
+            'thread_alive': self.buffer_thread.is_alive() if self.buffer_thread else False,
+            'thread_id': self.buffer_thread.ident if self.buffer_thread else None,
+            'active_streams': self.active_streams,
+            'active_clients': len(self.active_clients)
+        }        
 
 
 def log_all_available_cameras(logger):

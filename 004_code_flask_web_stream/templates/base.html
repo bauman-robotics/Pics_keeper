@@ -1,25 +1,37 @@
-<!-- base.html -->
 <!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Webcam Stream с управлением{% endblock %}</title>
+    <title>{% block title %}Webcam Stream Control{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     {% block extra_css %}{% endblock %}
 </head>
 <body>
     <div class="container">
-        <h1>🎥 {% block header %}Webcam Stream с управлением{% endblock %}</h1>
+        <header class="main-header">
+            <div class="header-content">
+                <h1><i class="fas fa-video"></i> {% block header %}Управление веб-камерой{% endblock %}</h1>
+                <div class="header-info">
+                    <span><i class="fas fa-server"></i> localhost:5000</span>
+                    <span><i class="fas fa-wifi"></i> /video_feed</span>
+                </div>
+            </div>
+        </header>
         
-        {% block content %}{% endblock %}
+        <main class="main-content">
+            {% block content %}{% endblock %}
+        </main>
         
-        {% include 'components/camera_modal.html' %}
-        
-        <div class="footer">
-            <p>Сервер: http://localhost:5000</p>
-            <p>Поток: http://localhost:5000/video_feed</p>
-        </div>
+        <footer class="main-footer">
+            <p>© 2024 Webcam Stream Control | Версия 2.0</p>
+            <div class="footer-links">
+                <a href="/"><i class="fas fa-home"></i> Главная</a>
+                <a href="/status"><i class="fas fa-chart-bar"></i> Статус</a>
+                <a href="/logs"><i class="fas fa-file-alt"></i> Логи</a>
+            </div>
+        </footer>
     </div>
 
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>

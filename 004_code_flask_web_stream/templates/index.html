@@ -1,64 +1,171 @@
-<!-- index.html -->
 {% extends "base.html" %}
 
+{% block title %}Управление веб-камерой{% endblock %}
+
 {% block content %}
-    <div class="controls">
-        <button class="btn btn-start" id="start-btn" onclick="startStream()">▶️ Запустить</button>
-        <button class="btn btn-stop" id="stop-btn" onclick="stopStream()" disabled>⏹️ Остановить</button>
-        <button class="btn btn-secondary" onclick="checkCamera()" title="Проверить состояние камеры">🔍 Проверить</button>
-        <button class="btn btn-secondary" onclick="refreshStream()" id="refresh-btn" title="Обновить видеопоток">🔄 Обновить</button>
-        <button class="btn btn-secondary" onclick="restartStream()" id="restart-btn" title="Перезапустить стрим">🔄 Перезапустить</button>
-    </div>
-    
-    <div class="status-panel">
-        <div class="status-row">
-            <span>Статус стрима:</span>
-            <span id="stream-status">
-                <span class="status-indicator inactive"></span>
-                <strong>Остановлен</strong>
-            </span>
+<div class="main-layout">
+    <!-- Левая панель управления (25%) -->
+    <div class="control-panel">
+        {% include 'components/camera_list.html' %}
+        
+        <div class="control-section">
+            <h3><i class="fas fa-sliders-h"></i> Управление</h3>
+            <div class="control-buttons">
+                <button class="btn btn-start" id="start-btn" onclick="startStream()">
+                    <i class="fas fa-play"></i> Запустить
+                </button>
+                <button class="btn btn-stop" id="stop-btn" onclick="stopStream()" disabled>
+                    <i class="fas fa-stop"></i> Остановить
+                </button>
+                <button class="btn btn-secondary" onclick="restartStream()">
+                    <i class="fas fa-redo"></i> Перезапустить
+                </button>
+            </div>
         </div>
-        <div class="status-row">
-            <span>Количество кадров:</span>
-            <span id="frame-count">0</span>
-        </div>
-        <div class="status-row">
-            <span>Соединение:</span>
-            <span id="connection-status">Не подключено</span>
-        </div>
-    </div>
-    
-    <div class="status-panel" id="camera-status-panel" style="margin-top: 10px;">
-        <div class="status-row">
-            <span>Текущая камера:</span>
-            <span id="current-camera">Загрузка...</span>
-        </div>
-        <div class="status-row">
-            <span>Состояние камеры:</span>
-            <span id="camera-ready-status">
-                <span class="status-indicator inactive"></span>
-                <strong>Проверка...</strong>
-            </span>
-        </div>
-    </div>
-    
-    <div class="camera-selection">
-        <h3>📹 Выбор камеры</h3>
-        <div id="camera-list" class="camera-list">
-            <div class="loading">Загрузка списка камер...</div>
+        
+        <div class="status-section">
+            <h3><i class="fas fa-chart-line"></i> Статус</h3>
+            <div class="status-grid">
+                <div class="status-item">
+                    <span>Стрим:</span>
+                    <span id="stream-status" class="status-value">
+                        <span class="status-indicator inactive"></span>
+                        Остановлен
+                    </span>
+                </div>
+                <div class="status-item">
+                    <span>Кадров:</span>
+                    <span id="frame-count" class="status-value">0</span>
+                </div>
+                <div class="status-item">
+                    <span>Камера:</span>
+                    <span id="camera-status" class="status-value">
+                        <span class="status-indicator inactive"></span>
+                        Проверка...
+                    </span>
+                </div>
+            </div>
         </div>
     </div>
     
-    <!-- УБЕРИТЕ style="display: none;" -->
-    <div class="video-container">
-        <img src="{{ url_for('video_feed') }}" alt="Video Stream" id="video-stream">
+    <!-- Правая панель видео (75%) -->
+    <div class="video-panel">
+        <div class="video-container">
+            <img src="{{ url_for('video_feed') }}" 
+                 alt="Video Stream" 
+                 id="video-stream"
+                 onload="onVideoLoad()"
+                 onerror="onVideoError()">
+            <div id="video-placeholder" class="video-placeholder">
+                <i class="fas fa-video-slash"></i>
+                <p>Видеопоток неактивен</p>
+            </div>
+        </div>
     </div>
+</div>
+
+{% include 'components/camera_modal.html' %}
+
+<script>
+// Инициализация при загрузке страницы
+document.addEventListener('DOMContentLoaded', function() {
+    // Обновление статуса каждые 3 секунды
+    setInterval(() => {
+        fetch('/api/stream/status')
+            .then(r => r.json())
+            .then(data => {
+                updateStreamStatus(data.stream_active);
+                document.getElementById('frame-count').textContent = data.frame_count;
+            });
+    }, 3000);
+});
+
+function onVideoLoad() {
+    document.getElementById('video-placeholder').style.display = 'none';
+}
+
+function onVideoError() {
+    document.getElementById('video-placeholder').style.display = 'flex';
+}
+
+function updateStreamStatus(isActive) {
+    const statusEl = document.getElementById('stream-status');
+    const startBtn = document.getElementById('start-btn');
+    const stopBtn = document.getElementById('stop-btn');
     
-    <div style="margin-top: 20px;">
-        <button class="btn btn-secondary" onclick="showCameras()">
-            📋 Показать все камеры
-        </button>
-        <a href="/status" class="btn btn-secondary">📊 Статус сервера</a>
-        <a href="/logs" class="btn btn-secondary">📝 Логи</a>
-    </div>
+    if (isActive) {
+        statusEl.innerHTML = '<span class="status-indicator active"></span><strong>Активен</strong>';
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+    } else {
+        statusEl.innerHTML = '<span class="status-indicator inactive"></span><strong>Остановлен</strong>';
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+    }
+}
+</script>
+
+<style>
+.main-layout {
+    display: flex;
+    height: calc(100vh - 150px);
+    gap: 20px;
+    padding: 20px;
+}
+
+.control-panel {
+    flex: 0 0 25%;
+    max-width: 350px;
+    background: var(--card-bg);
+    border-radius: 10px;
+    padding: 20px;
+    overflow-y: auto;
+}
+
+.video-panel {
+    flex: 1;
+    background: var(--card-bg);
+    border-radius: 10px;
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.video-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#video-stream {
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: 8px;
+}
+
+.video-placeholder {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.7);
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    border-radius: 8px;
+}
+
+.video-placeholder i {
+    font-size: 48px;
+    margin-bottom: 10px;
+    opacity: 0.6;
+}
+</style>
 {% endblock %}

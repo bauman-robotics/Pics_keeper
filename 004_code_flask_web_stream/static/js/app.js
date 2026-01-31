@@ -1,756 +1,383 @@
-// ============================================
-// app.js - Управление веб-камерой и видеопотоком
-// Версия с автоматическим запуском и улучшенной обработкой ошибок
-// ============================================
-
-// Конфигурация
-const CONFIG = {
-    maxAttempts: 5,
-    statusUpdateInterval: 2000,
-    cameraStatusUpdateInterval: 3000,
-    autoStartStream: true,  // Автоматически запускать стрим при загрузке
-    videoFeedRetryDelay: 3000,  // Задержка переподключения видео
-    serverCheckTimeout: 3000  // Таймаут проверки сервера
-};
-
-// Глобальные переменные
-let streamActive = false;
-let frameCount = 0;
-let connectionAttempts = 0;
-let selectedCamera = null;
-let camerasData = null;
-let camerasLoading = false;
-let videoInitialized = false;
-
-// DOM элементы
-const videoImg = document.getElementById('video-stream');
-const startBtn = document.getElementById('start-btn');
-const stopBtn = document.getElementById('stop-btn');
-const streamStatus = document.getElementById('stream-status');
-const frameCountDisplay = document.getElementById('frame-count');
-const connectionStatus = document.getElementById('connection-status');
-const currentCameraElem = document.getElementById('current-camera');
-const cameraReadyStatusElem = document.getElementById('camera-ready-status');
-const cameraListElem = document.getElementById('camera-list');
-
-// ============================================
-// ИНИЦИАЛИЗАЦИЯ
-// ============================================
-
-// Проверяем доступность сервера при загрузке
-async function checkServerAvailability() {
-    try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), CONFIG.serverCheckTimeout);
-        
-        const response = await fetch('/api/stream/status', { 
-            signal: controller.signal 
-        });
-        
-        clearTimeout(timeoutId);
-        
-        if (response.ok) {
-            console.log('✅ Сервер доступен');
-            return true;
-        }
-    } catch (error) {
-        console.log('❌ Сервер не отвечает:', error.name);
-    }
-    return false;
-}
-
-// Инициализация при загрузке страницы
-document.addEventListener('DOMContentLoaded', async function() {
-    console.log('🚀 Инициализация приложения...');
-    
-    // Инициализируем UI
-    updateUI();
-    
-    // Проверяем доступность сервера
-    const serverAvailable = await checkServerAvailability();
-    
-    if (serverAvailable) {
-        // Загружаем камеры
-        loadCameras();
-        updateCameraStatus();
-        
-        // Автоматически запускаем стрим если включено в конфиге
-        if (CONFIG.autoStartStream) {
-            console.log('⚡ Автоматический запуск стрима...');
-            setTimeout(() => {
-                if (!streamActive) {
-                    startStream();
-                }
-            }, 1500);
-        }
-    } else {
-        // Сервер не доступен
-        connectionStatus.textContent = '❌ Сервер не доступен';
-        console.error('Сервер не доступен, проверьте запущен ли сервер');
-        
-        // Показываем сообщение
-        if (cameraListElem) {
-            cameraListElem.innerHTML = '<div class="error">Сервер не доступен. Проверьте запущен ли сервер.</div>';
-        }
+class StreamController {
+    constructor() {
+        this.isStreamActive = false;
+        this.statusInterval = null;
+        this.videoElement = document.getElementById('video-stream');
+        this.currentDevicePath = null;
+        this.init();
     }
     
-    // Периодическое обновление статуса
-    setInterval(updateStatus, CONFIG.statusUpdateInterval);
-    setInterval(updateCameraStatus, CONFIG.cameraStatusUpdateInterval);
+    async init() {
+        await this.loadCameras();
+        await this.checkStatus();
+        this.startStatusUpdates();
+    }
     
-    // Закрытие модального окна по клику вне контента
-    window.onclick = function(event) {
-        const modal = document.getElementById('camera-modal');
-        if (event.target === modal) {
-            closeCameras();
-        }
-    };
-    
-    console.log('✅ Приложение инициализировано');
-});
-
-// ============================================
-// ОСНОВНЫЕ ФУНКЦИИ
-// ============================================
-
-function updateUI() {
-    if (streamActive) {
-        // Стрим активен
-        startBtn.disabled = true;
-        stopBtn.disabled = false;
-        streamStatus.innerHTML = '<span class="status-indicator active"></span><strong>Активен</strong>';
-        
-        if (videoImg) {
-            videoImg.style.display = 'block';
-            // Включаем видео если оно выключено
-            if (!videoImg.src || !videoImg.src.includes('video_feed')) {
-                videoImg.src = '/video_feed?' + Date.now();
+    async loadCameras() {
+        try {
+            console.log('🔄 Загрузка списка камер...');
+            const response = await fetch('/api/cameras');
+            if (!response.ok) {
+                throw new Error(`HTTP ошибка: ${response.status}`);
             }
-        }
-    } else {
-        // Стрим остановлен
-        startBtn.disabled = false;
-        stopBtn.disabled = true;
-        streamStatus.innerHTML = '<span class="status-indicator inactive"></span><strong>Остановлен</strong>';
-        
-        if (videoImg) {
-            videoImg.style.display = 'none';
-            connectionStatus.textContent = 'Не подключено';
-        }
-    }
-}
-
-// ============================================
-// API ФУНКЦИИ - СТРИМ
-// ============================================
-
-async function startStream() {
-    console.log('🟢 Запуск стрима...');
-    
-    try {
-        // Проверяем камеру перед запуском
-        const cameraStatus = await fetch('/api/stream/status').then(r => r.json());
-        console.log('📊 Статус камеры:', cameraStatus);
-        
-        if (!cameraStatus.camera_ready) {
-            console.warn('⚠️ Камера не готова!');
-            alert('⚠️ Камера не готова! Проверьте подключение камеры.');
-            return;
-        }
-        
-        const response = await fetch('/api/stream/start', { method: 'POST' });
-        const result = await response.json();
-        console.log('📋 Результат запуска:', result);
-        
-        if (result.status === 'started' || result.status === 'already_running') {
-            streamActive = true;
-            frameCount = 0;
-            connectionAttempts = 0;
-            updateUI();
             
-            connectionStatus.textContent = 'Подключение...';
-            console.log('✅ Стрим успешно запущен');
+            const data = await response.json();
+            console.log('📷 Получены камеры:', data);
             
-            // Проверяем подключение через секунду
-            setTimeout(() => {
-                checkStreamConnection();
-            }, 1000);
-        } else {
-            console.error('❌ Ошибка запуска стрима:', result.message);
-            alert('Ошибка запуска стрима: ' + result.message);
-        }
-    } catch (error) {
-        console.error('❌ Ошибка API:', error);
-        alert('Ошибка связи с сервером');
-    }
-}
-
-async function stopStream() {
-    console.log('🔴 Остановка стрима...');
-    
-    try {
-        const response = await fetch('/api/stream/stop', { method: 'POST' });
-        const result = await response.json();
-        
-        if (result.status === 'stopped' || result.status === 'already_stopped') {
-            streamActive = false;
-            updateUI();
-            connectionStatus.textContent = 'Остановлено';
-            console.log('✅ Стрим успешно остановлен');
-        } else {
-            alert('Ошибка остановки стрима: ' + result.message);
-        }
-    } catch (error) {
-        console.error('❌ Ошибка API:', error);
-        alert('Ошибка связи с сервером');
-    }
-}
-
-// ============================================
-// ОБРАБОТЧИКИ СОБЫТИЙ ВИДЕО
-// ============================================
-
-if (videoImg) {
-    videoImg.onload = function() {
-        console.log('📹 Видеопоток загружен');
-        if (streamActive) {
-            connectionStatus.textContent = '✅ Подключено';
-            frameCount++;
-            frameCountDisplay.textContent = frameCount;
-        }
-    };
-
-    videoImg.onerror = function() {
-        console.log('❌ Ошибка загрузки видеопотока');
-        if (streamActive) {
-            connectionAttempts++;
-            console.log('Ошибка загрузки видео, попытка:', connectionAttempts);
+            // Определяем текущее устройство
+            await this.determineCurrentDevice(data.current_device);
             
-            if (connectionAttempts < CONFIG.maxAttempts) {
-                connectionStatus.textContent = '🔄 Переподключение...';
-                setTimeout(() => {
-                    videoImg.src = '/video_feed?' + Date.now();
-                }, CONFIG.videoFeedRetryDelay);
+            if (data.cameras && data.cameras.length > 0) {
+                this.renderCameraList(data.cameras);
+                this.updateCurrentCameraDisplay(data.cameras);
             } else {
-                connectionStatus.textContent = '❌ Ошибка подключения';
-                alert('Не удалось подключиться к видео потоку. Проверьте сервер и камеру.');
-                stopStream();
+                this.showNoCamerasMessage();
             }
+            
+        } catch (error) {
+            console.error('❌ Ошибка загрузки камер:', error);
+            this.showErrorMessage('Ошибка загрузки камер: ' + error.message);
         }
-    };
-}
-
-// ============================================
-// ФУНКЦИИ ДЛЯ РАБОТЫ С КАМЕРАМИ
-// ============================================
-
-async function loadCameras() {
-    if (camerasLoading || !cameraListElem) return;
-    
-    camerasLoading = true;
-    cameraListElem.innerHTML = '<div class="loading">Загрузка списка камер...</div>';
-    
-    try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
-        
-        const response = await fetch('/api/cameras', { 
-            signal: controller.signal 
-        });
-        
-        clearTimeout(timeoutId);
-        
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        const data = await response.json();
-        renderMainCamerasList(data);
-        
-    } catch (error) {
-        console.error('Ошибка загрузки камер:', error);
-        
-        // Fallback - показываем только текущую камеру
-        cameraListElem.innerHTML = `
-            <div class="camera-item-row current">
-                <div class="radio-container">
-                    <label class="custom-radio">
-                        <input type="radio" name="camera" class="camera-radio" 
-                               value="/dev/video0" checked
-                               onchange="selectMainCamera('/dev/video0')">
-                        <span class="radio-indicator radio-green"></span>
-                        <span class="radio-text radio-green">✓ Активна</span>
-                    </label>
-                </div>
-                <div class="camera-info">
-                    <div class="camera-name-main">Текущая камера</div>
-                    <div class="camera-details">
-                        <span class="camera-device-main">/dev/video0</span>
-                    </div>
-                </div>
-            </div>
-            <div class="error" style="margin-top: 10px;">
-                Не удалось загрузить полный список камер
-            </div>
-        `;
-    } finally {
-        camerasLoading = false;
-    }
-}
-
-function renderMainCamerasList(data) {
-    if (!cameraListElem) return;
-    
-    if (!data.cameras || data.cameras.length === 0) {
-        cameraListElem.innerHTML = '<div class="error">Камеры не найдены</div>';
-        return;
     }
     
-    let html = '';
-    
-    data.cameras.forEach(camera => {
-        const isCurrent = camera.is_current;
-        
-        let formatsStr = camera.formats ? camera.formats.join(', ') : 'Нет форматов';
-        if (formatsStr.length > 50) {
-            formatsStr = formatsStr.substring(0, 47) + '...';
-        }
-        
-        let resolutionsHtml = '';
-        if (camera.resolutions) {
-            camera.resolutions.slice(0, 5).forEach(res => {
-                resolutionsHtml += `<span class="resolution-tag-main">${res}</span>`;
-            });
-            if (camera.resolutions.length > 5) {
-                resolutionsHtml += `<span class="resolution-tag-main">...</span>`;
+    async determineCurrentDevice(deviceId) {
+        if (typeof deviceId === 'number') {
+            // Если это число (0, 1, 2...) - преобразуем в /dev/videoX
+            this.currentDevicePath = `/dev/video${deviceId}`;
+        } else if (deviceId && deviceId.startsWith('/dev/')) {
+            this.currentDevicePath = deviceId;
+        } else {
+            // Пробуем получить из API статуса
+            try {
+                const response = await fetch('/api/stream/status');
+                const status = await response.json();
+                this.currentDevicePath = status.camera_device || '/dev/video0';
+            } catch {
+                this.currentDevicePath = '/dev/video0';
             }
         }
+        console.log(`🎯 Текущее устройство: ${this.currentDevicePath}`);
+    }
+    
+    renderCameraList(cameras) {
+        const container = document.getElementById('camera-list');
+        if (!container) return;
         
-        // Определяем цвет радиокнопки
-        const radioColor = isCurrent ? 'radio-green' : 'radio-red';
-        const radioText = isCurrent ? '✓ Активна' : 'Выбрать';
+        container.innerHTML = cameras.map(camera => `
+            <div class="camera-card ${camera.device_path === this.currentDevicePath ? 'current' : ''}" 
+                 onclick="selectCamera('${camera.device_path}')"
+                 title="Нажмите для выбора">
+                <div class="camera-header">
+                    <span class="camera-icon">📷</span>
+                    <span class="camera-name">${this.escapeHtml(camera.name || camera.device_path)}</span>
+                </div>
+                <div class="camera-details">
+                    <div class="camera-path">${camera.device_path}</div>
+                    ${camera.device_path === this.currentDevicePath ? '<div class="current-badge">Текущая</div>' : ''}
+                </div>
+                <div class="camera-formats">
+                    <small>Форматы: ${camera.formats?.join(', ') || 'неизвестно'}</small>
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    updateCurrentCameraDisplay(cameras) {
+        const currentCamera = cameras.find(cam => cam.device_path === this.currentDevicePath);
+        const displayElement = document.getElementById('current-camera');
         
-        html += `
-            <div class="camera-item-row ${isCurrent ? 'current' : ''}">
-                <div class="radio-container">
-                    <label class="custom-radio">
-                        <input type="radio" name="camera" class="camera-radio" 
-                               value="${camera.device_path}" ${isCurrent ? 'checked' : ''} 
-                               onchange="selectMainCamera('${camera.device_path}')">
-                        <span class="radio-indicator ${radioColor}"></span>
-                        <span class="radio-text ${radioColor}">${radioText}</span>
-                    </label>
-                </div>
-                <div class="camera-info">
-                    <div class="camera-name-main">${camera.name || camera.device_path}</div>
-                    <div class="camera-details">
-                        <span class="camera-device-main">${camera.device_path}</span>
-                        <span class="camera-formats-main">Форматы: ${formatsStr}</span>
+        if (displayElement) {
+            if (currentCamera) {
+                displayElement.textContent = `${currentCamera.name} (${currentCamera.device_path})`;
+            } else {
+                displayElement.textContent = `Устройство ${this.currentDevicePath}`;
+            }
+        }
+    }
+    
+    showNoCamerasMessage() {
+        const container = document.getElementById('camera-list');
+        if (container) {
+            container.innerHTML = `
+                <div class="no-cameras-message">
+                    <div class="message-icon">❌</div>
+                    <div class="message-text">Камеры не найдены</div>
+                    <div class="message-hint">
+                        Проверьте подключение камеры и запустите:<br>
+                        <code>ls /dev/video*</code><br>
+                        <button class="btn btn-sm btn-secondary" onclick="refreshCameras()">
+                            🔄 Обновить список
+                        </button>
                     </div>
-                    <div class="camera-resolutions-main">
-                        Разрешения: ${resolutionsHtml}
-                    </div>
                 </div>
-                <div class="camera-actions-main">
-                    <button class="btn-apply ${isCurrent ? 'disabled' : ''}" 
-                            onclick="applyCamera('${camera.device_path}')"
-                            ${isCurrent ? 'disabled' : ''}>
-                        Применить
+            `;
+        }
+    }
+    
+    showErrorMessage(message) {
+        const container = document.getElementById('camera-list');
+        if (container) {
+            container.innerHTML = `
+                <div class="error-message">
+                    <div class="message-icon">⚠️</div>
+                    <div class="message-text">${message}</div>
+                    <button class="btn btn-sm btn-secondary" onclick="refreshCameras()">
+                        🔄 Попробовать снова
                     </button>
                 </div>
-            </div>
-        `;
-    });
+            `;
+        }
+    }
     
-    cameraListElem.innerHTML = html;
-}
-
-function selectMainCamera(devicePath) {
-    const items = document.querySelectorAll('.camera-item-row');
-    let foundCurrent = false;
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
     
-    items.forEach(item => {
-        const radio = item.querySelector('.camera-radio');
-        const radioIndicator = item.querySelector('.radio-indicator');
-        const radioText = item.querySelector('.radio-text');
-        
-        if (radio.value === devicePath) {
-            item.classList.add('selected');
-            if (!radio.checked) { // Если это не текущая камера
-                radioIndicator.classList.remove('radio-green', 'radio-red');
-                radioIndicator.classList.add('radio-red');
-                radioText.classList.remove('radio-green', 'radio-red');
-                radioText.classList.add('radio-red');
-                radioText.textContent = 'Выбрать';
+    async startStream() {
+        try {
+            console.log('▶️ Запуск стрима...');
+            const response = await fetch('/api/stream/start', { method: 'POST' });
+            const data = await response.json();
+            
+            if (data.status === 'started' || data.status === 'already_running') {
+                this.updateUI(true);
+                this.refreshVideo();
+                console.log('✅ Стрим запущен');
+            } else {
+                console.error('❌ Ошибка запуска:', data.message);
+                alert('Ошибка запуска стрима: ' + data.message);
             }
-        } else {
-            item.classList.remove('selected');
-            if (!radio.checked) { // Если это не текущая камера
-                radioIndicator.classList.remove('radio-green', 'radio-red');
-                radioIndicator.classList.add('radio-red');
-                radioText.classList.remove('radio-green', 'radio-red');
-                radioText.classList.add('radio-red');
-                radioText.textContent = 'Выбрать';
+        } catch (error) {
+            console.error('❌ Ошибка запуска стрима:', error);
+            alert('Ошибка запуска стрима: ' + error.message);
+        }
+    }
+    
+    async stopStream() {
+        try {
+            console.log('⏹️ Остановка стрима...');
+            const response = await fetch('/api/stream/stop', { method: 'POST' });
+            const data = await response.json();
+            
+            if (data.status === 'stopped' || data.status === 'already_stopped') {
+                this.updateUI(false);
+                console.log('✅ Стрим остановлен');
+            } else {
+                console.error('❌ Ошибка остановки:', data.message);
+                alert('Ошибка остановки стрима: ' + data.message);
+            }
+        } catch (error) {
+            console.error('❌ Ошибка остановки стрима:', error);
+            alert('Ошибка остановки стрима: ' + error.message);
+        }
+    }
+    
+    async checkStatus() {
+        try {
+            const response = await fetch('/api/stream/status');
+            const data = await response.json();
+            this.updateUI(data.stream_active);
+            this.updateStatusInfo(data);
+            
+            // Обновляем информацию о текущей камере
+            if (data.camera_device && data.camera_device !== this.currentDevicePath) {
+                this.currentDevicePath = data.camera_device;
+                this.loadCameras(); // Перезагружаем список камер
+            }
+            
+        } catch (error) {
+            console.error('❌ Ошибка проверки статуса:', error);
+        }
+    }
+    
+    updateUI(isActive) {
+        this.isStreamActive = isActive;
+        const startBtn = document.getElementById('start-btn');
+        const stopBtn = document.getElementById('stop-btn');
+        const statusEl = document.getElementById('stream-status');
+        
+        if (startBtn) startBtn.disabled = isActive;
+        if (stopBtn) stopBtn.disabled = !isActive;
+        
+        if (statusEl) {
+            if (isActive) {
+                statusEl.innerHTML = '<span class="status-indicator active"></span><strong>Активен</strong>';
+            } else {
+                statusEl.innerHTML = '<span class="status-indicator inactive"></span><strong>Остановлен</strong>';
             }
         }
+    }
+    
+    updateStatusInfo(data) {
+        const frameCountEl = document.getElementById('frame-count');
+        const cameraStatusEl = document.getElementById('camera-ready-status');
+        const connectionStatusEl = document.getElementById('connection-status');
         
-        // Отмечаем текущую камеру
-        if (radio.checked) {
-            foundCurrent = true;
-            radioIndicator.classList.remove('radio-green', 'radio-red');
-            radioIndicator.classList.add('radio-green');
-            radioText.classList.remove('radio-green', 'radio-red');
-            radioText.classList.add('radio-green');
-            radioText.textContent = '✓ Активна';
+        if (frameCountEl) {
+            frameCountEl.textContent = data.frame_count || '0';
         }
-    });
+        
+        if (cameraStatusEl) {
+            cameraStatusEl.innerHTML = data.camera_ready ? 
+                '<span class="status-indicator active"></span><strong>Готова</strong>' :
+                '<span class="status-indicator inactive"></span><strong>Не готова</strong>';
+        }
+        
+        if (connectionStatusEl) {
+            connectionStatusEl.textContent = data.stream_active ? 'Подключено' : 'Отключено';
+        }
+    }
+    
+    refreshVideo() {
+        if (this.videoElement) {
+            const src = this.videoElement.src;
+            this.videoElement.src = '';
+            setTimeout(() => {
+                this.videoElement.src = src + '?t=' + Date.now();
+                console.log('🔄 Видео обновлено');
+            }, 100);
+        }
+    }
+    
+    startStatusUpdates() {
+        if (this.statusInterval) {
+            clearInterval(this.statusInterval);
+        }
+        this.statusInterval = setInterval(() => this.checkStatus(), 3000);
+    }
+    
+    destroy() {
+        if (this.statusInterval) {
+            clearInterval(this.statusInterval);
+            this.statusInterval = null;
+        }
+    }
 }
 
-async function applyCamera(devicePath) {
-    const btn = event.target;
-    const originalText = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = 'Изменение...';
-    
+// Глобальные функции
+let streamController;
+
+document.addEventListener('DOMContentLoaded', () => {
+    streamController = new StreamController();
+});
+
+function startStream() { 
+    streamController?.startStream(); 
+}
+
+function stopStream() { 
+    streamController?.stopStream(); 
+}
+
+function refreshStream() { 
+    streamController?.refreshVideo(); 
+}
+
+function refreshCameras() {
+    streamController?.loadCameras();
+}
+
+function restartStream() {
+    console.log('🔄 Перезапуск стрима...');
+    stopStream();
+    setTimeout(() => {
+        startStream();
+    }, 1000);
+}
+
+async function selectCamera(devicePath) {
     try {
+        console.log(`🎯 Выбор камеры: ${devicePath}`);
         const response = await fetch('/api/cameras/select', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ device_path: devicePath })
         });
+        const data = await response.json();
         
-        const result = await response.json();
-        
-        if (result.status === 'success') {
-            console.log('✅ Камера успешно изменена на ' + result.device_path);
+        if (data.status === 'success') {
+            console.log(`✅ Камера изменена на ${devicePath}`);
+            alert(`✅ Камера изменена на ${devicePath}`);
+            streamController?.loadCameras();
+            streamController?.checkStatus();
             
-            // Обновляем список камер
-            setTimeout(() => {
-                loadCameras();
-                updateCameraStatus();
-            }, 1000);
-            
-            // Обновляем текущую камеру в статусе
-            if (currentCameraElem) {
-                currentCameraElem.textContent = result.device_path;
-            }
-            
-            // Если стрим был активен и его перезапустили
-            if (result.stream_active && streamActive) {
+            // Если стрим был активен, перезапускаем его
+            if (data.stream_active) {
                 setTimeout(() => {
-                    // Принудительно обновляем видеопоток
-                    if (videoImg && streamActive) {
-                        videoImg.src = '/video_feed?' + Date.now();
-                        connectionStatus.textContent = '🔄 Обновление...';
-                    }
-                }, 1000);
+                    streamController?.refreshVideo();
+                }, 500);
             }
         } else {
-            console.error('❌ Ошибка изменения камеры: ' + result.message);
-            btn.disabled = false;
-            btn.textContent = originalText;
+            console.error('❌ Ошибка выбора камеры:', data.message);
+            alert('❌ Ошибка: ' + data.message);
         }
     } catch (error) {
-        console.error('Ошибка API:', error);
-        btn.disabled = false;
-        btn.textContent = originalText;
+        console.error('❌ Ошибка выбора камеры:', error);
+        alert('❌ Ошибка выбора камеры: ' + error.message);
     }
 }
 
-// ============================================
-// ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
-// ============================================
-
-function checkStreamConnection() {
-    if (!streamActive) return;
-    
-    if (videoImg && videoImg.complete && videoImg.naturalWidth > 0) {
-        connectionStatus.textContent = '✅ Подключено';
-        connectionAttempts = 0;
-    } else {
-        connectionAttempts++;
-        console.log('Проверка подключения, попытка:', connectionAttempts);
-        
-        if (connectionAttempts < 3) {
-            setTimeout(() => {
-                if (videoImg && streamActive) {
-                    videoImg.src = '/video_feed?' + Date.now();
-                }
-            }, 1000);
-        } else {
-            connectionStatus.textContent = '❌ Ошибка подключения';
-            alert('⚠️ Не удалось подключиться к видеопотоку. Проверьте камеру и перезапустите стрим.');
-        }
-    }
-}
-
-function refreshStream() {
-    if (streamActive && videoImg) {
-        console.log('Обновление видеопотока...');
-        videoImg.src = '/video_feed?' + Date.now();
-        connectionStatus.textContent = '🔄 Обновление...';
-    } else {
-        alert('Сначала запустите стрим!');
-    }
-}
-
-async function restartStream() {
-    if (streamActive) {
-        await stopStream();
-        setTimeout(async () => {
-            await startStream();
-        }, 1000);
-    } else {
-        await startStream();
-    }
-}
-
+// Проверка камеры
 async function checkCamera() {
     try {
         const response = await fetch('/api/camera/test');
-        const result = await response.json();
-        
-        if (result.status === 'success') {
-            alert(`✅ Камера работает!\nРазрешение: ${result.resolution}\nFPS: ${result.fps}`);
-            return true;
-        } else {
-            alert(`❌ Проблема с камерой:\n${result.message}`);
-            return false;
-        }
-    } catch (error) {
-        console.error('Ошибка проверки камеры:', error);
-        alert('❌ Ошибка проверки камеры');
-        return false;
-    }
-}
-
-async function updateStatus() {
-    try {
-        const response = await fetch('/api/stream/status');
-        const status = await response.json();
-        
-        if (frameCountDisplay) {
-            frameCountDisplay.textContent = status.frame_count;
-        }
-        
-        if (!status.stream_active && streamActive) {
-            streamActive = false;
-            updateUI();
-        }
-    } catch (error) {
-        console.error('Ошибка получения статуса:', error);
-    }
-}
-
-async function updateCameraStatus() {
-    try {
-        const response = await fetch('/api/stream/status');
-        const status = await response.json();
-        
-        if (currentCameraElem) {
-            currentCameraElem.textContent = status.camera_device || 'Неизвестно';
-        }
-        
-        if (cameraReadyStatusElem) {
-            const indicator = cameraReadyStatusElem.querySelector('.status-indicator');
-            const text = cameraReadyStatusElem.querySelector('strong');
-            
-            if (indicator && text) {
-                if (status.camera_ready) {
-                    indicator.className = 'status-indicator active';
-                    text.textContent = '✅ Готова';
-                } else {
-                    indicator.className = 'status-indicator inactive';
-                    text.textContent = '❌ Не готова';
-                }
-            }
-        }
-        
-    } catch (error) {
-        console.error('Ошибка обновления статуса камеры:', error);
-    }
-}
-
-// ============================================
-// МОДАЛЬНОЕ ОКНО ДЛЯ ВЫБОРА КАМЕРЫ
-// ============================================
-
-async function showCameras() {
-    const modal = document.getElementById('camera-modal');
-    const content = document.getElementById('camera-modal-content');
-    
-    if (!modal || !content) return;
-    
-    modal.style.display = 'block';
-    content.innerHTML = '<div class="loading">Загрузка списка камер...</div>';
-    
-    try {
-        const response = await fetch('/api/cameras');
         const data = await response.json();
-        camerasData = data;
-        renderCamerasList(data);
+        
+        if (data.status === 'success') {
+            alert(`✅ Камера работает\nРазрешение: ${data.resolution}\nFPS: ${data.fps}`);
+        } else {
+            alert(`❌ Камера не работает: ${data.message}`);
+        }
     } catch (error) {
-        console.error('Ошибка загрузки камер:', error);
-        content.innerHTML = '<div class="error">Ошибка загрузки списка камер</div>';
+        alert('❌ Ошибка проверки камеры: ' + error.message);
     }
 }
 
-function closeCameras() {
+// Диагностика стрима
+async function checkStreamDiagnostics() {
+    try {
+        const response = await fetch('/api/stream/diagnostics');
+        const data = await response.json();
+        console.log('🔧 Диагностика:', data);
+        alert(JSON.stringify(data, null, 2));
+    } catch (error) {
+        alert('❌ Ошибка диагностики: ' + error.message);
+    }
+}
+
+// Показать все камеры (открыть модальное окно)
+function showAllCameras() {
     const modal = document.getElementById('camera-modal');
     if (modal) {
-        modal.style.display = 'none';
-        selectedCamera = null;
-        const selectBtn = document.getElementById('select-camera-btn');
-        if (selectBtn) selectBtn.disabled = true;
+        modal.style.display = 'block';
+        refreshCameras();
     }
 }
 
-function renderCamerasList(data) {
-    const content = document.getElementById('camera-modal-content');
-    if (!content) return;
+// Обработка загрузки видео
+function onVideoLoad() {
+    console.log('✅ Видео загружено');
+    const placeholder = document.getElementById('video-placeholder');
+    if (placeholder) placeholder.style.display = 'none';
     
-    if (!data.cameras || data.cameras.length === 0) {
-        content.innerHTML = '<div class="error">Камеры не найдены</div>';
-        return;
-    }
-    
-    let html = '<div class="camera-list">';
-    
-    data.cameras.forEach(camera => {
-        const isSelected = selectedCamera === camera.device_path;
-        const isCurrent = camera.is_current;
-        
-        let formatsStr = camera.formats ? camera.formats.join(', ') : 'Нет форматов';
-        if (formatsStr.length > 50) {
-            formatsStr = formatsStr.substring(0, 47) + '...';
-        }
-        
-        let resolutionsHtml = '';
-        if (camera.resolutions) {
-            camera.resolutions.forEach(res => {
-                resolutionsHtml += `<span class="resolution-tag">${res}</span>`;
-            });
-        }
-        
-        html += `
-            <div class="camera-item ${isSelected ? 'selected' : ''} ${isCurrent ? 'current' : ''}" 
-                 onclick="selectCameraItem('${camera.device_path}')">
-                <div class="camera-header">
-                    <div class="camera-name">${camera.name || camera.device_path}</div>
-                    <div class="camera-device">${camera.device_path}</div>
-                </div>
-                <div class="camera-formats">Форматы: ${formatsStr}</div>
-                <div class="camera-resolutions">
-                    Разрешения: ${resolutionsHtml}
-                </div>
-                ${isCurrent ? '<div style="color: #007bff; font-size: 0.9em; margin-top: 5px;">Текущая камера</div>' : ''}
-            </div>
-        `;
-    });
-    
-    html += '</div>';
-    content.innerHTML = html;
-}
-
-function selectCameraItem(devicePath) {
-    selectedCamera = devicePath;
-    
-    const items = document.querySelectorAll('.camera-item');
-    items.forEach(item => {
-        if (item.onclick && item.onclick.toString().includes(devicePath)) {
-            item.classList.add('selected');
-        } else {
-            item.classList.remove('selected');
-        }
-    });
-    
-    const selectBtn = document.getElementById('select-camera-btn');
-    if (selectBtn) selectBtn.disabled = false;
-}
-
-async function selectCamera() {
-    if (!selectedCamera) {
-        alert('Пожалуйста, выберите камеру');
-        return;
-    }
-    
-    const btn = document.getElementById('select-camera-btn');
-    if (!btn) return;
-    
-    btn.disabled = true;
-    btn.textContent = 'Изменение камеры...';
-    
-    try {
-        const response = await fetch('/api/cameras/select', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ device_path: selectedCamera })
-        });
-        
-        const result = await response.json();
-        
-        if (result.status === 'success') {
-            alert('Камера успешно изменена на ' + result.device_path);
-            closeCameras();
-            updateUI();
-            
-            if (streamActive) {
-                stopStream();
-                setTimeout(() => { startStream(); }, 1000);
-            }
-        } else {
-            alert('Ошибка изменения камеры: ' + result.message);
-            btn.disabled = false;
-            btn.textContent = 'Выбрать камеру';
-        }
-    } catch (error) {
-        console.error('Ошибка API:', error);
-        alert('Ошибка связи с сервером');
-        btn.disabled = false;
-        btn.textContent = 'Выбрать камеру';
+    // Обновляем информацию о размере
+    const video = document.getElementById('video-stream');
+    if (video.naturalWidth > 0) {
+        const info = `${video.naturalWidth}×${video.naturalHeight}`;
+        const sizeElement = document.getElementById('stream-size');
+        if (sizeElement) sizeElement.textContent = `Размер: ${info}`;
     }
 }
 
-// ============================================
-// УТИЛИТЫ
-// ============================================
-
-async function forceStartStream() {
-    console.log('⚡ Принудительный запуск стрима...');
-    
-    // Сбрасываем счетчики
-    streamActive = false;
-    connectionAttempts = 0;
-    
-    // Останавливаем текущий стрим если есть
-    await stopStream();
-    
-    // Ждем 500ms
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    // Запускаем стрим
-    await startStream();
+function onVideoError() {
+    console.log('❌ Ошибка загрузки видео');
+    const placeholder = document.getElementById('video-placeholder');
+    if (placeholder) placeholder.style.display = 'flex';
 }
 
-function refreshCameras() {
-    if (!camerasLoading) {
-        loadCameras();
-    }
-}
-
-// Экспортируем функции для использования в HTML
-window.startStream = startStream;
-window.stopStream = stopStream;
-window.checkCamera = checkCamera;
-window.refreshStream = refreshStream;
-window.restartStream = restartStream;
-window.showCameras = showCameras;
-window.closeCameras = closeCameras;
-window.selectCamera = selectCamera;
-window.selectCameraItem = selectCameraItem;
-window.selectMainCamera = selectMainCamera;
-window.applyCamera = applyCamera;
-window.forceStartStream = forceStartStream;
-window.refreshCameras = refreshCameras;
-
-console.log('📦 app.js загружен и готов к работе');
+// Очистка при закрытии страницы
+window.addEventListener('beforeunload', () => {
+    streamController?.destroy();
+});
