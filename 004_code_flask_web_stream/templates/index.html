@@ -40,27 +40,39 @@
                         Проверка...
                     </span>
                 </div>
+                <div class="status-item">
+                    <span>Текущая:</span>
+                    <span id="current-camera-display" class="status-value">Загрузка...</span>
+                </div>
             </div>
         </div>
 
         <!-- Выбор камеры -->
         <div class="camera-section">
-            <h4>📹 Камеры</h4>
+            <h4>📹 Выбор камеры</h4>
             <div id="camera-list" class="camera-list">
-                <div class="loading">Загрузка...</div>
+                <div class="loading">Загрузка камер...</div>
             </div>
-            <button class="btn btn-sm btn-secondary" onclick="refreshCameras()" style="margin-top: 10px;">
-                🔄 Обновить
-            </button>
+            <div class="camera-actions">
+                <button class="btn btn-sm btn-secondary" onclick="refreshCameras()">
+                    🔄 Обновить список
+                </button>
+                <button class="btn btn-sm btn-info" onclick="checkCamera()">
+                    🔍 Проверить камеру
+                </button>
+            </div>
         </div>
 
-        <!-- Ссылки -->
-        <div class="links-section">
-            <button class="btn btn-sm btn-info" onclick="checkCamera()">
-                🔍 Проверить
-            </button>
-            <a href="/status" class="btn btn-sm btn-info">📊 Статус</a>
-            <a href="/logs" class="btn btn-sm btn-info">📝 Логи</a>
+        <!-- Быстрые ссылки -->
+        <div class="quick-links">
+            <a href="/status" class="btn btn-sm btn-info">
+                <span class="btn-icon">📊</span>
+                <span class="btn-text">Статус</span>
+            </a>
+            <a href="/logs" class="btn btn-sm btn-info">
+                <span class="btn-icon">📝</span>
+                <span class="btn-text">Логи</span>
+            </a>
         </div>
     </div>
 
@@ -106,7 +118,7 @@ body {
 
 /* Левая панель */
 .control-panel {
-    flex: 0 0 300px;
+    flex: 0 0 320px;
     background: rgba(45, 55, 72, 0.95);
     border-radius: 10px;
     padding: 15px;
@@ -158,6 +170,7 @@ body {
     align-items: center;
     justify-content: center;
     gap: 6px;
+    text-decoration: none;
 }
 
 .btn:hover {
@@ -263,6 +276,7 @@ body {
     max-height: 200px;
     overflow-y: auto;
     padding-right: 5px;
+    margin-bottom: 10px;
 }
 
 .camera-list::-webkit-scrollbar {
@@ -279,42 +293,64 @@ body {
     border-radius: 3px;
 }
 
-.camera-card {
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 6px;
-    padding: 10px;
+/* Радиокнопка */
+.camera-radio {
+    display: flex;
+    align-items: center;
+    gap: 10px;
     cursor: pointer;
-    transition: all 0.2s;
+    width: 100%;
+}
+
+.camera-radio input[type="radio"] {
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border: 2px solid #718096;
+    border-radius: 50%;
+    background: transparent;
+    cursor: pointer;
     position: relative;
+    flex-shrink: 0;
 }
 
-.camera-card:hover {
-    background: rgba(255, 255, 255, 0.15);
-    border-color: rgba(255, 255, 255, 0.3);
-    transform: translateX(2px);
-}
-
-.camera-card.current {
-    background: rgba(72, 187, 120, 0.15);
+.camera-radio input[type="radio"]:checked {
     border-color: #48bb78;
+    background: #48bb78;
+}
+
+.camera-radio input[type="radio"]:checked::after {
+    content: '';
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    width: 6px;
+    height: 6px;
+    background: white;
+    border-radius: 50%;
+}
+
+.camera-radio input[type="radio"]:hover {
+    border-color: #a0aec0;
+}
+
+.camera-info {
+    flex: 1;
+    min-width: 0;
 }
 
 .camera-header {
     display: flex;
+    justify-content: space-between;
     align-items: center;
-    gap: 8px;
     margin-bottom: 4px;
-}
-
-.camera-icon {
-    font-size: 1.1em;
+    gap: 8px;
 }
 
 .camera-name {
     font-weight: 600;
     color: #e2e8f0;
-    font-size: 0.9em;
+    font-size: 0.95em;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -325,19 +361,45 @@ body {
     font-size: 0.8em;
     color: #a0aec0;
     font-family: monospace;
-    margin-bottom: 2px;
 }
 
-.current-badge {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    background: #48bb78;
-    color: white;
-    padding: 2px 6px;
-    border-radius: 3px;
-    font-size: 0.7em;
-    font-weight: 600;
+.camera-card {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    padding: 10px;
+    transition: all 0.2s;
+}
+
+.camera-card.selected {
+    background: rgba(72, 187, 120, 0.15);
+    border-color: #48bb78;
+}
+
+.camera-card:hover {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.camera-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.camera-actions .btn {
+    flex: 1;
+}
+
+/* Быстрые ссылки */
+.quick-links {
+    display: flex;
+    gap: 8px;
+    margin-top: auto;
+}
+
+.quick-links .btn {
+    flex: 1;
 }
 
 /* Видео контейнер */
@@ -406,18 +468,6 @@ body {
     padding: 0 5px;
 }
 
-/* Ссылки */
-.links-section {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-}
-
-.links-section .btn {
-    flex: 1;
-    min-width: 80px;
-}
-
 .loading {
     text-align: center;
     padding: 15px;
@@ -472,39 +522,165 @@ body {
 </style>
 
 <script>
-// Используем тот же StreamController, но упростим renderCameraList
+// В StreamController.prototype.renderCameraList заменяем радиокнопку на квадратик
 StreamController.prototype.renderCameraList = function(cameras) {
     const container = document.getElementById('camera-list');
     if (!container) return;
     
+    if (!cameras || cameras.length === 0) {
+        container.innerHTML = '<div class="no-cameras">Камеры не найдены</div>';
+        return;
+    }
+    
     container.innerHTML = cameras.map(camera => {
         // Упрощаем название камеры
         let cameraName = camera.name || camera.device_path;
-        // Убираем лишнюю техническую информацию
         cameraName = cameraName.replace(/\(usb-[^)]+\)/g, '').trim();
         cameraName = cameraName.replace(/\(046d:0825\)/g, '').trim();
         cameraName = cameraName.replace(/:/g, '').trim();
         
         // Если название слишком длинное, обрезаем
-        if (cameraName.length > 30) {
-            cameraName = cameraName.substring(0, 27) + '...';
+        if (cameraName.length > 25) {
+            cameraName = cameraName.substring(0, 22) + '...';
         }
         
+        const isSelected = camera.device_path === this.currentDevicePath;
+        
         return `
-            <div class="camera-card ${camera.device_path === this.currentDevicePath ? 'current' : ''}" 
-                 onclick="selectCamera('${camera.device_path}')"
+            <div class="camera-card ${isSelected ? 'selected' : ''}" 
+                 onclick="handleCameraChange('${camera.device_path}')"
                  title="${camera.name || camera.device_path}">
-                <div class="camera-header">
-                    <span class="camera-icon">📷</span>
-                    <span class="camera-name">${this.escapeHtml(cameraName)}</span>
+                <div class="camera-selector">
+                    <div class="selection-square ${isSelected ? 'selected' : ''}">
+                        ${isSelected ? '✓' : ''}
+                    </div>
+                    <div class="camera-info">
+                        <div class="camera-header">
+                            <span class="camera-name">${this.escapeHtml(cameraName)}</span>
+                            ${isSelected ? '<span class="current-badge">Текущая</span>' : ''}
+                        </div>
+                        <div class="camera-path">${camera.device_path}</div>
+                    </div>
                 </div>
-                <div class="camera-path">${camera.device_path}</div>
-                ${camera.device_path === this.currentDevicePath ? '<div class="current-badge">Текущая</div>' : ''}
             </div>
         `;
     }).join('');
 };
 
+// Обновляем отображение текущей камеры
+StreamController.prototype.updateCurrentCameraDisplay = function(cameras) {
+    const currentCamera = cameras.find(cam => cam.device_path === this.currentDevicePath);
+    const displayElement = document.getElementById('current-camera-display');
+    
+    if (displayElement) {
+        if (currentCamera) {
+            let cameraName = currentCamera.name || currentCamera.device_path;
+            cameraName = cameraName.replace(/\(usb-[^)]+\)/g, '').trim();
+            cameraName = cameraName.replace(/\(046d:0825\)/g, '').trim();
+            cameraName = cameraName.replace(/:/g, '').trim();
+            
+            if (cameraName.length > 20) {
+                cameraName = cameraName.substring(0, 17) + '...';
+            }
+            
+            displayElement.textContent = cameraName;
+        } else {
+            displayElement.textContent = this.currentDevicePath;
+        }
+    }
+};
+
+// В handleCameraChange убираем уведомление
+async function handleCameraChange(devicePath) {
+    console.log(`🎯 Смена камеры на: ${devicePath}`);
+    
+    try {
+        const response = await fetch('/api/cameras/select', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ device_path: devicePath })
+        });
+        
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+            // БЕЗ УВЕДОМЛЕНИЙ - только обновление интерфейса
+            if (streamController) {
+                streamController.currentDevicePath = devicePath;
+                await streamController.loadCameras();
+                await streamController.checkStatus();
+                
+                // Если стрим был активен, обновляем видео
+                if (data.stream_active) {
+                    setTimeout(() => {
+                        streamController.refreshVideo();
+                    }, 300);
+                }
+            }
+        } else {
+            console.error('❌ Ошибка смены камеры:', data.message);
+            // Перезагружаем список камер для сброса
+            if (streamController) {
+                setTimeout(() => streamController.loadCameras(), 500);
+            }
+        }
+    } catch (error) {
+        console.error('❌ Ошибка смены камеры:', error);
+    }
+}
+
+
+// В checkCamera тоже убираем alert
+async function checkCamera() {
+    try {
+        const response = await fetch('/api/camera/test');
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+            console.log(`✅ Камера работает (${data.resolution}, ${data.fps} FPS)`);
+        } else {
+            console.error(`❌ Камера не работает: ${data.message}`);
+        }
+    } catch (error) {
+        console.error('❌ Ошибка проверки:', error);
+    }
+}
+
 // Остальные функции остаются без изменений
+document.addEventListener('DOMContentLoaded', () => {
+    streamController = new StreamController();
+});
+
+function startStream() { streamController?.startStream(); }
+function stopStream() { streamController?.stopStream(); }
+function refreshStream() { streamController?.refreshVideo(); }
+function restartStream() { 
+    stopStream();
+    setTimeout(() => startStream(), 1000);
+}
+function refreshCameras() { streamController?.loadCameras(); }
+
+function onVideoLoad() {
+    console.log('✅ Видео загружено');
+    const placeholder = document.getElementById('video-placeholder');
+    if (placeholder) placeholder.style.display = 'none';
+    
+    const video = document.getElementById('video-stream');
+    if (video.naturalWidth > 0) {
+        const info = `${video.naturalWidth}×${video.naturalHeight}`;
+        const sizeElement = document.getElementById('stream-size');
+        if (sizeElement) sizeElement.textContent = `Размер: ${info}`;
+    }
+}
+
+function onVideoError() {
+    console.log('❌ Ошибка загрузки видео');
+    const placeholder = document.getElementById('video-placeholder');
+    if (placeholder) placeholder.style.display = 'flex';
+}
+
+window.addEventListener('beforeunload', () => {
+    streamController?.destroy();
+});
 </script>
 {% endblock %}

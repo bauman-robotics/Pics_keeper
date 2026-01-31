@@ -299,7 +299,7 @@ async function selectCamera(devicePath) {
         
         if (data.status === 'success') {
             console.log(`✅ Камера изменена на ${devicePath}`);
-            alert(`✅ Камера изменена на ${devicePath}`);
+            //alert(`✅ Камера изменена на ${devicePath}`);
             streamController?.loadCameras();
             streamController?.checkStatus();
             

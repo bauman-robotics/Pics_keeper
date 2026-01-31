@@ -76,3 +76,102 @@ body {
 .btn-stop { background: linear-gradient(135deg, var(--danger-color), #fc8181); color: white; }
 .btn-secondary { background: linear-gradient(135deg, #805ad5, #9f7aea); color: white; }
 .btn-info { background: linear-gradient(135deg, var(--info-color), #63b3ed); color: white; }
+
+/* В CSS добавляем стили для квадратиков выбора */
+.camera-selector {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    width: 100%;
+}
+
+.selection-square {
+    width: 20px;
+    height: 20px;
+    border: 2px solid #718096;
+    border-radius: 4px;
+    background: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: transparent;
+    font-size: 12px;
+    font-weight: bold;
+    flex-shrink: 0;
+    transition: all 0.2s ease;
+}
+
+.selection-square.selected {
+    border-color: #48bb78;
+    background: #48bb78;
+    color: white;
+    box-shadow: 0 0 8px rgba(72, 187, 120, 0.4);
+}
+
+.camera-card:hover .selection-square {
+    border-color: #a0aec0;
+}
+
+.camera-card.selected:hover .selection-square {
+    border-color: #38a169;
+}
+
+.camera-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.camera-name {
+    font-weight: 600;
+    color: #e2e8f0;
+    font-size: 0.9em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 2px;
+}
+
+.camera-path {
+    font-size: 0.8em;
+    color: #a0aec0;
+    font-family: monospace;
+}
+
+.camera-card {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    padding: 10px;
+    transition: all 0.2s;
+    cursor: pointer;
+}
+
+.camera-card.selected {
+    background: rgba(72, 187, 120, 0.1);
+    border-color: #48bb78;
+}
+
+.camera-card:hover {
+    background: rgba(255, 255, 255, 0.15);
+    transform: translateX(2px);
+}
+
+.current-badge {
+    background: #48bb78;
+    color: white;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 0.75em;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    box-shadow: 0 2px 4px rgba(72, 187, 120, 0.3);
+}
+
+/* Яркий зеленый для темной темы */
+.dark-theme .current-badge {
+    background: #38a169;
+    color: #f0fff4;
+    box-shadow: 0 0 10px rgba(72, 187, 120, 0.5);
+}
