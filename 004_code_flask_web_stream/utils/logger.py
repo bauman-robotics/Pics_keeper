@@ -190,6 +190,65 @@ class StreamLogger:
         checker.log_detection_results_with_fps(cameras)
         
         return cameras
+    
+
+    def log_web_action(self, action: str, status: str, details: str = "", 
+                       user_ip: str = None, user_agent: str = None):
+        """
+        Логирование действий на веб-странице
+        
+        Args:
+            action: Действие (start_stream, stop_stream, select_camera, etc.)
+            status: Статус (success, error, warning)
+            details: Детали действия
+            user_ip: IP адрес пользователя (опционально)
+            user_agent: User Agent браузера (опционально)
+        """
+        log_message = f"🌐 Веб-действие: {action} | Статус: {status}"
+        
+        if details:
+            log_message += f" | Детали: {details}"
+        if user_ip:
+            log_message += f" | IP: {user_ip}"
+        if user_agent:
+            # Обрезаем длинные user agent строки
+            short_agent = user_agent[:100] + "..." if len(user_agent) > 100 else user_agent
+            log_message += f" | User-Agent: {short_agent}"
+        
+        # Логируем в зависимости от статуса
+        if status == 'error':
+            self.logger.error(log_message)
+        elif status == 'warning':
+            self.logger.warning(log_message)
+        else:
+            self.logger.info(log_message)
+    
+    def log_button_click(self, button_name: str, page: str = "", 
+                         user_ip: str = None, additional_info: dict = None):
+        """
+        Логирование нажатий на кнопки
+        
+        Args:
+            button_name: Название кнопки
+            page: Страница, на которой была нажата кнопка
+            user_ip: IP адрес пользователя
+            additional_info: Дополнительная информация (например, параметры запроса)
+        """
+        log_message = f"🖱️ Нажатие кнопки: '{button_name}'"
+        
+        if page:
+            log_message += f" | Страница: {page}"
+        if user_ip:
+            log_message += f" | IP: {user_ip}"
+        
+        self.logger.info(log_message)
+        
+        # Логируем дополнительную информацию если есть
+        if additional_info:
+            for key, value in additional_info.items():
+                if key not in ['password', 'token', 'secret']:  # Не логируем чувствительные данные
+                    self.logger.debug(f"   📋 {key}: {value}")
+
 
 def create_logger(config_path: str = 'config.yaml', log_dir: str = '002_logs') -> StreamLogger:
     """Создание экземпляра логгера"""

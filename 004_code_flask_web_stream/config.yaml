@@ -40,7 +40,7 @@ stream:
 
 # Пути
 paths:
-  templates_folder: "templates_04"  # Папка с HTML шаблонами
+  templates_folder: "templates"  # Папка с HTML шаблонами
   log_file: "stream.log"           # Файл логов (опционально)
 
 # Интервалы обновления
