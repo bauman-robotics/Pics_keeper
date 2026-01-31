@@ -101,7 +101,7 @@ def main():
     print(f"🎯 Контроль углов: {settings.capture.max_angle}° макс.")
     print(f"📁 Лог-файл: {logger.get_log_file_path()}")
     
-    # Запускаем стрим, если включен
+        # Запускаем стрим, если включен
     if settings.stream.enabled:
         print(f"\n🎬 Запуск стрима на порту {settings.stream.port}...")
         print(f"🎬 Разрешение: {settings.stream.width}x{settings.stream.height} @ {settings.stream.fps} FPS")
@@ -123,7 +123,11 @@ def main():
                 enable_visualization=True,
                 enable_capture=True,
                 capture_dir=settings.capture.output_dir,
-                file_prefix="stream"
+                file_prefix="stream",
+                stream_port=settings.stream.port,
+                web_interface=settings.stream.web_interface,
+                stream_analysis=settings.stream.analysis,
+                stream_quality=settings.stream.quality
             )
             
             # Создаем менеджер стрима
@@ -131,7 +135,15 @@ def main():
             
             # Запускаем стрим
             if stream_manager.start():
-                print(f"✅ Стрим запущен на порту {settings.stream.port}")
+                print(f"✅ Стрим запущен")
+                
+                # Запускаем веб-сервер, если включен
+                if settings.stream.web_interface:
+                    if stream_manager.start_web_server():
+                        print(f"🌐 Веб-сервер запущен на порту {settings.stream.port}")
+                        print(f"   Откройте в браузере: http://localhost:{settings.stream.port}")
+                    else:
+                        print("❌ Не удалось запустить веб-сервер")
                 
                 # Устанавливаем обработчик кадров для логирования
                 def on_frame_received(frame):
@@ -150,6 +162,7 @@ def main():
                     print("\n🛑 Остановка стрима...")
                 
                 stream_manager.stop()
+                stream_manager.stop_web_server()
                 print("✅ Стрим остановлен")
             else:
                 print("❌ Не удалось запустить стрим")

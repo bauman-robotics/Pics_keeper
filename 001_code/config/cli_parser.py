@@ -60,6 +60,10 @@ class CLIParser:
                                  help='Режим низкой задержки (по умолчанию: ВКЛЮЧЕН)')
         stream_group.add_argument('--stream-port', type=int, default=8080,
                                  help='Порт стрима (по умолчанию: 8080)')
+        stream_group.add_argument('--web-interface', action='store_true', default=True,
+                                 help='Включить веб-интерфейс (по умолчанию: ВКЛЮЧЕН)')
+        stream_group.add_argument('--no-web', action='store_false', dest='web_interface',
+                                 help='Отключить веб-интерфейс')
         
         # Группа параметров съемки
         capture_group = parser.add_argument_group('Параметры съемки')

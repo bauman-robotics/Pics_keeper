@@ -17,6 +17,7 @@ from core.webcam_stream import WebcamStream, WebcamStreamConfig
 from core.stream_settings import StreamSettings, StreamStatus, FrameInfo, StreamMetrics
 from core.stream_visualization import apply_visualization_overlay
 from core.stream_scaling import smart_resize
+from core.stream_server import StreamServer, StreamServerConfig
 from utils.logger import PicsKeeperLogger
 from utils.file_namer import FileNamer
 
@@ -36,6 +37,10 @@ class UniversalStreamConfig:
     enable_capture: bool = True
     capture_dir: str = "./003_pics"
     file_prefix: str = "chessboard"
+    stream_port: int = 8080
+    web_interface: bool = True
+    stream_analysis: bool = False
+    stream_quality: int = 50
 
 class UniversalStreamManager:
     """
@@ -69,6 +74,10 @@ class UniversalStreamManager:
         # Менеджеры для разных типов камер
         self._picamera_manager: Optional[StreamManager] = None
         self._webcam_stream: Optional[WebcamStream] = None
+        
+        # Веб-сервер для MJPEG стрима
+        self._stream_server: Optional[StreamServer] = None
+        self._server_thread: Optional[threading.Thread] = None
         
         # Состояние
         self._running = False
@@ -121,6 +130,65 @@ class UniversalStreamManager:
                 self.logger.error(f"Ошибка запуска UniversalStreamManager: {e}")
             self._running = False
             return False
+    
+    def start_web_server(self) -> bool:
+        """
+        Запуск веб-сервера для MJPEG стрима
+        
+        Returns:
+            True, если запуск успешен
+        """
+        if not self.config.web_interface:
+            if self.logger:
+                self.logger.info("Веб-интерфейс отключен")
+            return True
+        
+        try:
+            # Создаем конфигурацию для веб-сервера
+            server_config = StreamServerConfig(
+                port=self.config.stream_port,
+                stream_width=self.config.target_width,
+                stream_height=self.config.target_height,
+                stream_fps=self.config.max_fps,
+                stream_quality=self.config.stream_quality,
+                stream_analysis=self.config.stream_analysis,
+                low_latency=self.config.low_latency,
+                camera_name=self._camera_type,
+                save_dir=self.config.capture_dir,
+                jpeg_quality=self.config.stream_quality,
+                max_angle=45.0,
+                warn_angle=30.0,
+                force_capture=False
+            )
+            
+            # Создаем веб-сервер
+            self._stream_server = StreamServer(
+                config=server_config,
+                frame_source=self.get_current_frame,
+                logger=self.logger
+            )
+            
+            # Запускаем сервер в отдельном потоке
+            self._server_thread = self._stream_server.start_server()
+            
+            if self.logger:
+                self.logger.info(f"Веб-сервер запущен на порту {self.config.stream_port}")
+            
+            return True
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Ошибка запуска веб-сервера: {e}")
+            return False
+    
+    def stop_web_server(self):
+        """Остановка веб-сервера"""
+        if self._stream_server:
+            self._stream_server.stop_server()
+            self._stream_server = None
+            self._server_thread = None
+            if self.logger:
+                self.logger.info("Веб-сервер остановлен")
     
     def stop(self):
         """Остановка стрима"""

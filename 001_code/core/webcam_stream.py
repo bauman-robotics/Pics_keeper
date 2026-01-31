@@ -134,7 +134,7 @@ class WebcamStream:
             self._capture_thread.join(timeout=2.0)
         
         # Освобождение ресурсов
-        self._webcam.release()
+        self._webcam.cleanup()
         
         if self.logger:
             self.logger.info("WebcamStream остановлен")
@@ -240,10 +240,6 @@ class WebcamStream:
                 # Сохранение в буфер
                 with self._buffer_lock:
                     self._frame_buffer = scaled_frame.copy()
-                
-                # Отображение кадра в окне OpenCV
-                if self.config.show_status:
-                    cv2.imshow('Webcam Stream', scaled_frame)
                 
                 # Вызов обработчика кадров
                 if self._frame_callback:

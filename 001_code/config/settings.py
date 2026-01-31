@@ -47,6 +47,7 @@ class StreamSettings:
     analysis: bool = False
     low_latency: bool = True
     port: int = 8080
+    web_interface: bool = True
     ae_enable: bool = True
     exposure_time: int = 40000
     analogue_gain: float = 2.0
@@ -109,7 +110,8 @@ class ApplicationSettings:
             quality=getattr(args, 'stream_quality', defaults.get('stream_quality', 50)),
             analysis=getattr(args, 'stream_analysis', defaults.get('stream_analysis', False)),
             low_latency=getattr(args, 'low_latency', defaults.get('stream_low_latency', True)),
-            port=getattr(args, 'stream_port', defaults.get('stream_port', 8080))
+            port=getattr(args, 'stream_port', defaults.get('stream_port', 8080)),
+            web_interface=getattr(args, 'web_interface', defaults.get('web_interface', True))
         )
         
         # Настройки съемки
