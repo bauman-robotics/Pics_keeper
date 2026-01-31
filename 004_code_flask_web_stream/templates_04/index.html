@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Webcam Stream с управлением</title>
+    <style>
+        body {
+            text-align: center;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+            margin: 0;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+        }
+        
+        .controls {
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 1.1em;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            min-width: 120px;
+        }
+        
+        .btn-start {
+            background-color: #28a745;
+            color: white;
+        }
+        
+        .btn-start:hover {
+            background-color: #218838;
+            transform: translateY(-2px);
+        }
+        
+        .btn-stop {
+            background-color: #dc3545;
+            color: white;
+        }
+        
+        .btn-stop:hover {
+            background-color: #c82333;
+            transform: translateY(-2px);
+        }
+        
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: #6c757d;
+            margin-right: 8px;
+            animation: pulse 2s infinite;
+        }
+        
+        .status-indicator.active {
+            background-color: #28a745;
+        }
+        
+        .status-indicator.inactive {
+            background-color: #dc3545;
+        }
+        
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(40, 167, 69, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(40, 167, 69, 0); }
+        }
+        
+        .video-container {
+            display: inline-block;
+            background: #000;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+            margin-bottom: 20px;
+        }
+        
+        img {
+            width: 100%;
+            height: auto;
+            display: block;
+            max-width: 90vw;
+            max-height: 70vh;
+        }
+        
+        .status-panel {
+            margin-top: 20px;
+            padding: 15px;
+            background: #e8f4fd;
+            border-radius: 8px;
+            color: #333;
+            font-size: 1.1em;
+            text-align: left;
+        }
+        
+        .status-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+        }
+        
+        .footer {
+            margin-top: 30px;
+            color: #666;
+            font-size: 0.9em;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 15px;
+            }
+            
+            h1 {
+                font-size: 2em;
+            }
+            
+            .controls {
+                flex-direction: column;
+                align-items: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎥 Webcam Stream с управлением</h1>
+        
+        <div class="controls">
+            <button class="btn btn-start" id="start-btn" onclick="startStream()">▶️ Запустить</button>
+            <button class="btn btn-stop" id="stop-btn" onclick="stopStream()" disabled>⏹️ Остановить</button>
+        </div>
+        
+        <div class="status-panel">
+            <div class="status-row">
+                <span>Статус стрима:</span>
+                <span id="stream-status">
+                    <span class="status-indicator inactive"></span>
+                    <strong>Остановлен</strong>
+                </span>
+            </div>
+            <div class="status-row">
+                <span>Количество кадров:</span>
+                <span id="frame-count">0</span>
+            </div>
+            <div class="status-row">
+                <span>Соединение:</span>
+                <span id="connection-status">Не подключено</span>
+            </div>
+        </div>
+        
+        <div class="video-container">
+            <img src="" alt="Video Stream" id="video-stream" style="display: none;">
+        </div>
+        
+        <div class="footer">
+            <p>Сервер: http://localhost:5000</p>
+            <p>Поток: http://localhost:5000/video_feed</p>
+        </div>
+    </div>
+
+    <script>
+        let streamActive = false;
+        let frameCount = 0;
+        let connectionAttempts = 0;
+        const maxAttempts = 5;
+        const videoImg = document.getElementById('video-stream');
+        const startBtn = document.getElementById('start-btn');
+        const stopBtn = document.getElementById('stop-btn');
+        const streamStatus = document.getElementById('stream-status');
+        const frameCountDisplay = document.getElementById('frame-count');
+        const connectionStatus = document.getElementById('connection-status');
+
+        function updateUI() {
+            if (streamActive) {
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                streamStatus.innerHTML = '<span class="status-indicator active"></span><strong>Активен</strong>';
+                videoImg.style.display = 'block';
+            } else {
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+                streamStatus.innerHTML = '<span class="status-indicator inactive"></span><strong>Остановлен</strong>';
+                videoImg.style.display = 'none';
+                connectionStatus.textContent = 'Не подключено';
+            }
+        }
+
+        async function startStream() {
+            console.log('Запуск стрима...');
+            try {
+                const response = await fetch('/api/stream/start', {
+                    method: 'POST'
+                });
+                const result = await response.json();
+                
+                if (result.status === 'started' || result.status === 'already_running') {
+                    streamActive = true;
+                    frameCount = 0;
+                    connectionAttempts = 0;
+                    updateUI();
+                    
+                    // Начинаем загрузку видео
+                    videoImg.src = '/video_feed?' + Date.now();
+                    connectionStatus.textContent = 'Подключение...';
+                    console.log('Стрим успешно запущен');
+                } else {
+                    alert('Ошибка запуска стрима: ' + result.message);
+                }
+            } catch (error) {
+                console.error('Ошибка API:', error);
+                alert('Ошибка связи с сервером');
+            }
+        }
+
+        async function stopStream() {
+            console.log('Остановка стрима...');
+            try {
+                const response = await fetch('/api/stream/stop', {
+                    method: 'POST'
+                });
+                const result = await response.json();
+                
+                if (result.status === 'stopped' || result.status === 'already_stopped') {
+                    streamActive = false;
+                    updateUI();
+                    
+                    // Останавливаем загрузку видео
+                    videoImg.src = '';
+                    connectionStatus.textContent = 'Остановлено';
+                    console.log('Стрим успешно остановлен');
+                } else {
+                    alert('Ошибка остановки стрима: ' + result.message);
+                }
+            } catch (error) {
+                console.error('Ошибка API:', error);
+                alert('Ошибка связи с сервером');
+            }
+        }
+
+        videoImg.onload = function() {
+            if (streamActive) {
+                connectionStatus.textContent = 'Подключено';
+                frameCount++;
+                frameCountDisplay.textContent = frameCount;
+            }
+        };
+
+        videoImg.onerror = function() {
+            if (streamActive) {
+                connectionAttempts++;
+                console.log('Ошибка подключения, попытка:', connectionAttempts);
+                
+                if (connectionAttempts < maxAttempts) {
+                    setTimeout(() => {
+                        videoImg.src = '/video_feed?' + Date.now();
+                    }, 1000);
+                } else {
+                    alert('Не удалось подключиться к видео потоку. Проверьте сервер.');
+                    stopStream();
+                }
+            }
+        };
+
+        // Инициализация интерфейса
+        updateUI();
+        
+        // Периодическое обновление статуса
+        setInterval(async function() {
+            try {
+                const response = await fetch('/api/stream/status');
+                const status = await response.json();
+                
+                // Обновляем счетчик кадров
+                frameCountDisplay.textContent = status.frame_count;
+                
+                // Если стрим остановлен на сервере, но активен на клиенте - синхронизируем
+                if (!status.stream_active && streamActive) {
+                    streamActive = false;
+                    updateUI();
+                }
+            } catch (error) {
+                console.error('Ошибка получения статуса:', error);
+            }
+        }, 2000); // Обновляем каждые 2 секунды
+    </script>
+</body>
+</html>
