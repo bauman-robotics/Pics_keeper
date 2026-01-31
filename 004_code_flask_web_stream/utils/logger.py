@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+
+# logger.py 
 """
 Модуль логирования для Flask Webcam Stream
 """
@@ -6,13 +8,10 @@
 import logging
 import os
 import sys
-import cv2
+#import cv2
 from datetime import datetime
-from pathlib import Path
-from typing import Optional, List, Dict
-
-# Импортируем улучшенный детектор камер
-from .camera_checker import CameraChecker
+# from pathlib import Path
+# from typing import Optional, List, Dict
 
 class StreamLogger:
     """Класс для логирования событий Flask веб-сервера"""
@@ -138,6 +137,40 @@ class StreamLogger:
         
         self.logger.info("=" * 70)
     
+    # Методы для внутреннего логгера
+    def info(self, message):
+        """Информационное сообщение"""
+        self.logger.info(message)
+    
+    def error(self, message):
+        """Логирование ошибки"""
+        self.logger.error(message)
+    
+    def warning(self, message):
+        """Предупреждение"""
+        self.logger.warning(message)
+    
+    def debug(self, message):
+        """Отладочное сообщение"""
+        self.logger.debug(message)
+    
+    # Алиасы для обратной совместимости
+    def log_info(self, message):
+        """Алиас для info()"""
+        self.info(message)
+    
+    def log_error(self, message):
+        """Алиас для error()"""
+        self.error(message)
+    
+    def log_warning(self, message):
+        """Алиас для warning()"""
+        self.warning(message)
+    
+    def log_debug(self, message):
+        """Алиас для debug()"""
+        self.debug(message)
+
     def log_camera_test(self, backend_name, success, resolution=None, fps=None, error=None):
         """Логирование тестирования камеры"""
         if success:
@@ -177,20 +210,7 @@ class StreamLogger:
     def get_log_file_path(self) -> str:
         """Получение пути к лог-файлу"""
         return self.log_file
-    
-    def scan_available_cameras(self, max_devices: int = 10) -> List[Dict]:
-        """Сканирование доступных камер и их параметров с использованием v4l2-ctl"""
-        # Создаем улучшенный детектор камер
-        checker = CameraChecker()
-        
-        # Детектируем камеры
-        cameras = checker.detect_cameras(max_devices)
-        
-        # Логируем результаты
-        checker.log_detection_results_with_fps(cameras)
-        
-        return cameras
-    
+
 
     def log_web_action(self, action: str, status: str, details: str = "", 
                        user_ip: str = None, user_agent: str = None):
@@ -248,8 +268,7 @@ class StreamLogger:
             for key, value in additional_info.items():
                 if key not in ['password', 'token', 'secret']:  # Не логируем чувствительные данные
                     self.logger.debug(f"   📋 {key}: {value}")
-
-
+    
 def create_logger(config_path: str = 'config.yaml', log_dir: str = '002_logs') -> StreamLogger:
     """Создание экземпляра логгера"""
     return StreamLogger(config_path, log_dir)
