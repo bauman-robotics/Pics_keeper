@@ -6,9 +6,13 @@
 import logging
 import os
 import sys
+import cv2
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict
+
+# Импортируем улучшенный детектор камер
+from .camera_checker import CameraChecker
 
 class StreamLogger:
     """Класс для логирования событий Flask веб-сервера"""
@@ -173,6 +177,19 @@ class StreamLogger:
     def get_log_file_path(self) -> str:
         """Получение пути к лог-файлу"""
         return self.log_file
+    
+    def scan_available_cameras(self, max_devices: int = 10) -> List[Dict]:
+        """Сканирование доступных камер и их параметров с использованием v4l2-ctl"""
+        # Создаем улучшенный детектор камер
+        checker = CameraChecker()
+        
+        # Детектируем камеры
+        cameras = checker.detect_cameras(max_devices)
+        
+        # Логируем результаты
+        checker.log_detection_results(cameras)
+        
+        return cameras
 
 def create_logger(config_path: str = 'config.yaml', log_dir: str = '002_logs') -> StreamLogger:
     """Создание экземпляра логгера"""

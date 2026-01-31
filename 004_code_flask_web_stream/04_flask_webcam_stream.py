@@ -144,6 +144,9 @@ def main():
     # Загружаем конфигурацию
     config = load_config(args.config)
     
+    # Сканируем доступные камеры
+    available_cameras = logger.scan_available_cameras()
+    
     # Логируем информацию о запуске
     logger.log_startup_info(config)
     
