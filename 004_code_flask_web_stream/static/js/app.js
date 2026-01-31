@@ -436,6 +436,7 @@ function selectMainCamera(devicePath) {
 
 async function applyCamera(devicePath) {
     const btn = event.target;
+    const originalText = btn.textContent;
     btn.disabled = true;
     btn.textContent = 'Изменение...';
     
@@ -449,23 +450,30 @@ async function applyCamera(devicePath) {
         const result = await response.json();
         
         if (result.status === 'success') {
-            alert('Камера успешно изменена на ' + result.device_path);
+            alert('✅ Камера успешно изменена на ' + result.device_path);
             loadCameras();
+            updateCameraStatus();
             
-            if (streamActive) {
-                stopStream();
-                setTimeout(() => { startStream(); }, 1000);
+            // Если стрим был активен и его перезапустили
+            if (result.stream_restarted) {
+                setTimeout(() => {
+                    // Принудительно обновляем видеопоток
+                    if (videoImg && streamActive) {
+                        videoImg.src = '/video_feed?' + Date.now();
+                        connectionStatus.textContent = '🔄 Обновление...';
+                    }
+                }, 1000);
             }
         } else {
-            alert('Ошибка изменения камеры: ' + result.message);
+            alert('❌ Ошибка изменения камеры: ' + result.message);
             btn.disabled = false;
-            btn.textContent = 'Применить';
+            btn.textContent = originalText;
         }
     } catch (error) {
         console.error('Ошибка API:', error);
-        alert('Ошибка связи с сервером');
+        alert('❌ Ошибка связи с сервером');
         btn.disabled = false;
-        btn.textContent = 'Применить';
+        btn.textContent = originalText;
     }
 }
 
