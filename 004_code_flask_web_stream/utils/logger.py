@@ -187,7 +187,7 @@ class StreamLogger:
         cameras = checker.detect_cameras(max_devices)
         
         # Логируем результаты
-        checker.log_detection_results(cameras)
+        checker.log_detection_results_with_fps(cameras)
         
         return cameras
 
