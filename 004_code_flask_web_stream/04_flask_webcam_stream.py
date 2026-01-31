@@ -13,6 +13,9 @@ from flask import Flask, Response, render_template, jsonify
 import argparse
 import os
 
+# Импортируем логгер
+from utils.logger import create_logger
+
 def load_config(config_path="config.yaml"):
     """Загрузка конфигурации из YAML файла"""
     try:
@@ -41,7 +44,7 @@ def get_camera_backend(backend_name):
     }
     return backends.get(backend_name.lower(), None)
 
-def test_camera_backends(config):
+def test_camera_backends(config, logger):
     """Тестируем разные способы открытия камеры согласно конфигурации"""
     
     camera_config = config['camera']
@@ -96,18 +99,36 @@ def test_camera_backends(config):
                     actual_height = int(cam.get(cv2.CAP_PROP_FRAME_HEIGHT))
                     actual_fps = int(cam.get(cv2.CAP_PROP_FPS))
                     
+                    resolution_str = f"{actual_width}x{actual_height}"
+                    fps_str = f"{actual_fps}"
+                    
                     print(f"✅ {name} РАБОТАЕТ!")
-                    print(f"   Разрешение: {actual_width}x{actual_height}")
-                    print(f"   FPS: {actual_fps}")
+                    print(f"   Разрешение: {resolution_str}")
+                    print(f"   FPS: {fps_str}")
+                    
+                    # Логируем успешное подключение
+                    logger.log_camera_test(name, True, resolution_str, fps_str)
+                    
+                    # Сохраняем информацию о найденной камере для логирования
+                    camera_info = {
+                        'name': name,
+                        'resolution': resolution_str,
+                        'fps': fps_str
+                    }
+                    logger.log_startup_info(config, camera_info)
+                    
                     return cam
                 else:
                     print(f"⚠️  {name} открылась, но не может читать кадры")
+                    logger.log_camera_test(name, False, error="Не может читать кадры")
                     cam.release()
             else:
                 print(f"❌ {name} не открылась")
+                logger.log_camera_test(name, False, error="Не удалось открыть устройство")
                 cam.release()
         except Exception as e:
             print(f"❌ {name} ошибка: {e}")
+            logger.log_camera_test(name, False, error=str(e))
     
     return None
 
@@ -117,16 +138,23 @@ def main():
                        help='Путь к конфигурационному файлу YAML (по умолчанию: config.yaml)')
     args = parser.parse_args()
     
+    # Создаем логгер
+    logger = create_logger(args.config)
+    
     # Загружаем конфигурацию
     config = load_config(args.config)
+    
+    # Логируем информацию о запуске
+    logger.log_startup_info(config)
     
     print("=" * 60)
     print("🔍 Поиск рабочей камеры...")
     print("=" * 60)
     
-    camera = test_camera_backends(config)
+    camera = test_camera_backends(config, logger)
     
     if camera is None:
+        logger.log_error("НЕ НАЙДЕНА РАБОЧАЯ КАМЕРА!")
         print("\n❌ НЕ НАЙДЕНА РАБОЧАЯ КАМЕРА!")
         print("\nПопробуйте:")
         print("  1. sudo apt install v4l-utils")

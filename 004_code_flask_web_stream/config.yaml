@@ -11,7 +11,7 @@ server:
 # Параметры камеры
 camera:
   # Основные настройки
-  device: 1                 # Номер устройства камеры (0, 1, 2...)
+  device: 0                 # Номер устройства камеры (0, 1, 2...)
   backend: "auto"           # Бэкенд: "auto", "v4l2", "ffmpeg", "direct"
   direct_path: "/dev/video0" # Прямой путь к устройству (используется при backend: "direct")
   
