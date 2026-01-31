@@ -7,6 +7,7 @@ server:
   port: 5000                # Порт сервера
   debug: false              # Режим отладки
   threaded: true            # Многопоточный режим
+  max_concurrent_streams: 4  # Добавьте эту строку
 
 # Параметры камеры
 camera:
@@ -16,9 +17,12 @@ camera:
   direct_path: "/dev/video0" # Прямой путь к устройству (используется при backend: "direct")
   
   # Разрешение и качество
-  width: 1280               # Ширина кадра
-  height: 720               # Высота кадра
-  fps: 30                   # Кадров в секунду
+  #width: 1280               # Ширина кадра
+  #height: 720               # Высота кадра
+  width: 640               # Ширина кадра
+  height: 480               # Высота кадра
+
+  fps: 15                   # Кадров в секунду
   
   # Настройки JPEG сжатия
   jpeg_quality: 85          # Качество JPEG (1-100)
@@ -27,16 +31,16 @@ camera:
   test_backends:
     - "default"
     - "v4l2_video0"
-    - "v4l2_video1"
-    - "ffmpeg_video0"
-    - "direct_video0"
-    - "direct_video1"
+    # - "v4l2_video1"
+    # - "ffmpeg_video0"
+    # - "direct_video0"
+    # - "direct_video1"
 
 # Параметры потока
 stream:
-  max_error_count: 10       # Максимальное количество ошибок чтения
-  frame_log_interval: 30    # Интервал логирования (каждые N кадров)
-  chunk_size: 8192          # Размер чанка для передачи
+  max_error_count: 20       # Максимальное количество ошибок чтения
+  frame_log_interval: 60    # Интервал логирования (каждые N кадров)
+  buffer_size: 30  # Размер буфера
 
 # Пути
 paths:

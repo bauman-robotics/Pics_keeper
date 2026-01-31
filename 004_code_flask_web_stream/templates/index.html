@@ -1,3 +1,4 @@
+<!-- index.html -->
 {% extends "base.html" %}
 
 {% block content %}
@@ -48,8 +49,9 @@
         </div>
     </div>
     
+    <!-- УБЕРИТЕ style="display: none;" -->
     <div class="video-container">
-        <img src="" alt="Video Stream" id="video-stream" style="display: none;">
+        <img src="{{ url_for('video_feed') }}" alt="Video Stream" id="video-stream">
     </div>
     
     <div style="margin-top: 20px;">

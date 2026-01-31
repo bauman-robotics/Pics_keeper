@@ -11,6 +11,7 @@ let frameCount = 0;
 let connectionAttempts = 0;
 let selectedCamera = null;
 let camerasData = null;
+let videoInitialized = false; // ← ДОБАВЬТЕ эту строку
 
 // DOM элементы
 const videoImg = document.getElementById('video-stream');
@@ -23,10 +24,24 @@ const currentCameraElem = document.getElementById('current-camera');
 const cameraReadyStatusElem = document.getElementById('camera-ready-status');
 
 // Инициализация
+// Инициализация
 document.addEventListener('DOMContentLoaded', function() {
     updateUI();
     loadCameras();
     updateCameraStatus();
+    
+    // Инициализируем видео
+    if (videoImg && !videoInitialized) {
+        videoInitialized = true;
+        
+        // Устанавливаем начальный src ТОЛЬКО если стрим активен
+        const urlParams = new URLSearchParams(window.location.search);
+        const autoStart = urlParams.get('autostart');
+        
+        if (autoStart === 'true') {
+            startStream();
+        }
+    }
     
     // Периодическое обновление статуса
     setInterval(updateStatus, CONFIG.statusUpdateInterval);
@@ -48,12 +63,20 @@ function updateUI() {
         stopBtn.disabled = false;
         streamStatus.innerHTML = '<span class="status-indicator active"></span><strong>Активен</strong>';
         videoImg.style.display = 'block';
+        
+        // Включаем видео ТОЛЬКО если оно выключено
+        if (!videoImg.src || !videoImg.src.includes('video_feed')) {
+            videoImg.src = '/video_feed?' + Date.now();
+        }
     } else {
         startBtn.disabled = false;
         stopBtn.disabled = true;
         streamStatus.innerHTML = '<span class="status-indicator inactive"></span><strong>Остановлен</strong>';
         videoImg.style.display = 'none';
         connectionStatus.textContent = 'Не подключено';
+        
+        // Выключаем видео
+        videoImg.src = '';
     }
 }
 
@@ -78,11 +101,16 @@ async function startStream() {
             connectionAttempts = 0;
             updateUI();
             
-            videoImg.src = '/video_feed?' + Date.now();
+            // УБЕРИТЕ эту строку - видео уже загружено в HTML
+            // videoImg.src = '/video_feed?' + Date.now(); // ← УДАЛИТЬ
+            
             connectionStatus.textContent = 'Подключение...';
             console.log('Стрим успешно запущен');
             
-            checkStreamConnection();
+            // Запускаем проверку подключения
+            setTimeout(() => {
+                checkStreamConnection();
+            }, 1000);
         } else {
             alert('Ошибка запуска стрима: ' + result.message);
         }
@@ -129,19 +157,22 @@ videoImg.onerror = function() {
         connectionAttempts++;
         console.log('Ошибка загрузки видео, попытка:', connectionAttempts);
         
-        if (connectionAttempts < CONFIG.maxAttempts) {
-            connectionStatus.textContent = '🔄 Переподключение...';
-            setTimeout(() => {
-                videoImg.src = '/video_feed?' + Date.now();
-            }, 1000);
-        } else {
-            connectionStatus.textContent = '❌ Ошибка подключения';
-            alert('Не удалось подключиться к видео потоку. Проверьте сервер и камеру.');
-            stopStream();
-        }
+        // Если ошибка, просто показываем статус
+        connectionStatus.textContent = '❌ Ошибка подключения';
+        
+        // УБЕРИТЕ авто-переподключение
+        // if (connectionAttempts < CONFIG.maxAttempts) {
+        //     connectionStatus.textContent = '🔄 Переподключение...';
+        //     setTimeout(() => {
+        //         videoImg.src = '/video_feed?' + Date.now(); // УДАЛИТЬ
+        //     }, 1000);
+        // } else {
+        //     connectionStatus.textContent = '❌ Ошибка подключения';
+        //     alert('Не удалось подключиться к видео потоку. Проверьте сервер и камеру.');
+        //     stopStream();
+        // }
     }
 };
-
 // Функции для камер
 async function checkCamera() {
     try {
@@ -169,25 +200,18 @@ function checkStreamConnection() {
         connectionStatus.textContent = '✅ Подключено';
         connectionAttempts = 0;
     } else {
-        connectionAttempts++;
-        console.log('Проверка подключения, попытка:', connectionAttempts);
-        
-        if (connectionAttempts < 3) {
-            setTimeout(() => {
-                videoImg.src = '/video_feed?' + Date.now();
-            }, 1000);
-        } else {
-            connectionStatus.textContent = '❌ Ошибка подключения';
-            alert('⚠️ Не удалось подключиться к видеопотоку. Проверьте камеру и перезапустите стрим.');
-        }
+        // Просто показываем статус, не переподключаем автоматически
+        connectionStatus.textContent = '🔄 Подключение...';
     }
 }
-
 function refreshStream() {
     if (streamActive) {
         console.log('Обновление видеопотока...');
+        // Меняем src для принудительного обновления
         videoImg.src = '/video_feed?' + Date.now();
         connectionStatus.textContent = '🔄 Обновление...';
+    } else {
+        alert('Сначала запустите стрим!');
     }
 }
 

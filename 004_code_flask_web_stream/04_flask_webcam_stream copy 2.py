@@ -14,7 +14,6 @@ import copy
 from flask import Flask, Response, render_template, jsonify, request
 import argparse
 import os
-import numpy as np
 from utils.camera_checker import CameraChecker
 
 # Импортируем логгер
@@ -113,13 +112,12 @@ def test_camera_backends(config, logger):
                     # Логируем успешное подключение
                     logger.log_camera_test(name, True, resolution_str, fps_str)
                     
-                    # Сохраняем информацию о найденной камере
+                    # Сохраняем информацию о найденной камере для логирования
                     camera_info = {
                         'name': name,
                         'resolution': resolution_str,
                         'fps': fps_str
                     }
-                    # Передаем информацию о камере в логирование запуска
                     logger.log_startup_info(config, camera_info)
                     
                     return cam
@@ -159,7 +157,7 @@ class CameraStreamer:
         
         # Управление подключениями
         self.active_streams = 0
-        self.MAX_CONCURRENT_STREAMS = config['server'].get('max_concurrent_streams', 2)
+        self.MAX_CONCURRENT_STREAMS = 2
         self.stream_lock = threading.Lock()
         
         # Инициализация Flask
@@ -172,42 +170,239 @@ class CameraStreamer:
         # Сканируем доступные камеры
         self.camera_checker = CameraChecker()
         self.available_cameras = self.camera_checker.detect_cameras()
-
-        # Добавляем отслеживание времени активности стримов
-        self.stream_sessions = {}  # client_id -> timestamp
-        
-        # Таймер для очистки старых стримов
-        self.cleanup_timer = threading.Timer(30.0, self.cleanup_old_streams)
-        self.cleanup_timer.daemon = True
-        self.cleanup_timer.start()  
-
-        # Словарь для отслеживания активных соединений по IP
-        self.active_clients = {}  # client_ip -> [connection_count, last_activity]
-        
-        self.MAX_STREAMS_PER_CLIENT = 1  # Максимум 1 стрим на клиента
-        self.MAX_TOTAL_STREAMS = 4       # Общий максимум стримов              
-
-    def cleanup_old_streams(self):
-        """Очистка старых стримов"""
-        with self.stream_lock:
-            current_time = time.time()
-            # Удаляем стримы старше 10 секунд
-            old_streams = [cid for cid, ts in self.stream_sessions.items() 
-                          if current_time - ts > 10.0]
-            
-            for client_id in old_streams:
-                if self.active_streams > 0:
-                    self.active_streams -= 1
-                del self.stream_sessions[client_id]
-                
-            if old_streams:
-                print(f"🧹 Очищено {len(old_streams)} старых стримов")
     
-        # Перезапускаем таймер
-        self.cleanup_timer = threading.Timer(30.0, self.cleanup_old_streams)
-        self.cleanup_timer.daemon = True
-        self.cleanup_timer.start()       
-
+    def buffer_frames(self):
+        """Фоновая задача для чтения кадров в буфер"""
+        error_count = 0
+        frame_interval = 0.033  # 30 FPS по умолчанию
+        
+        print("📦 Запущен буферизатор кадров")
+        
+        # Устанавливаем интервал на основе FPS из конфига
+        target_fps = self.config['camera'].get('fps', 30)
+        if target_fps > 0:
+            frame_interval = 1.0 / target_fps
+        
+        while self.buffer_active:
+            try:
+                with self.camera_lock:
+                    if self.current_camera is None:
+                        print("❌ Камера не инициализирована в буфере")
+                        time.sleep(frame_interval)
+                        continue
+                    
+                    if not self.current_camera.isOpened():
+                        print("❌ Камера не открыта в буфере")
+                        time.sleep(frame_interval)
+                        continue
+                    
+                    success, frame = self.current_camera.read()
+                
+                if success and frame is not None:
+                    error_count = 0  # Сброс счетчика ошибок
+                    
+                    # Сохраняем последний кадр
+                    with self.frame_lock:
+                        self.last_frame = frame.copy()
+                    
+                    # Добавляем в буфер
+                    try:
+                        # Если буфер полон, удаляем старый кадр
+                        if self.frame_buffer.full():
+                            try:
+                                self.frame_buffer.get_nowait()
+                            except queue.Empty:
+                                pass
+                        
+                        self.frame_buffer.put_nowait(frame.copy())
+                        
+                    except queue.Full:
+                        pass
+                    except Exception as e:
+                        print(f"⚠️ Ошибка при добавлении в буфер: {e}")
+                
+                else:
+                    error_count += 1
+                    if error_count % 10 == 0:  # Логируем каждую 10-ю ошибку
+                        print(f"📦 Ошибка чтения кадра в буфере, попытка {error_count}")
+                    
+                    # Если много ошибок, используем последний сохраненный кадр
+                    if error_count > 5 and self.last_frame is not None:
+                        try:
+                            if self.frame_buffer.full():
+                                try:
+                                    self.frame_buffer.get_nowait()
+                                except queue.Empty:
+                                    pass
+                            
+                            self.frame_buffer.put_nowait(self.last_frame.copy())
+                        except Exception as e:
+                            print(f"⚠️ Ошибка при добавлении последнего кадра: {e}")
+                
+                # Контроль FPS
+                time.sleep(frame_interval)
+                
+            except Exception as e:
+                print(f"📦 Критическая ошибка в буфере: {e}")
+                time.sleep(frame_interval)
+        
+        print("📦 Остановлен буферизатор кадров")
+    
+    def generate_from_buffer(self):
+        """Генератор кадров из буфера"""
+        print("🎬 Генератор кадров запущен (из буфера)")
+        local_frame_count = 0
+        error_count = 0
+        last_success_time = time.time()
+        
+        while self.stream_active:
+            try:
+                # Пытаемся получить кадр из буфера
+                try:
+                    frame = self.frame_buffer.get(timeout=1.0)  # Увеличили timeout
+                except queue.Empty:
+                    error_count += 1
+                    
+                    # Если буфер пуст долгое время, используем последний кадр
+                    if error_count > 3:
+                        with self.frame_lock:
+                            if self.last_frame is not None:
+                                print(f"⚠️ Буфер пуст, использую последний кадр (ошибок: {error_count})")
+                                frame = self.last_frame.copy()
+                                error_count = 0  # Сброс после успеха
+                            else:
+                                print(f"❌ Буфер пуст и нет последнего кадра (ошибок: {error_count})")
+                                if error_count > 10:
+                                    print("💥 Слишком много ошибок, останавливаем стрим")
+                                    break
+                                time.sleep(0.1)
+                                continue
+                    else:
+                        time.sleep(0.05)
+                        continue
+                
+                error_count = 0
+                local_frame_count += 1
+                self.frame_count += 1
+                last_success_time = time.time()
+                
+                if local_frame_count % 30 == 0:
+                    buffer_size = self.frame_buffer.qsize()
+                    print(f"📊 Отправлено кадров: {local_frame_count} (буфер: {buffer_size}/30)")
+                
+                # Кодируем кадр
+                try:
+                    ret, buffer = cv2.imencode('.jpg', frame, [
+                        cv2.IMWRITE_JPEG_QUALITY, 
+                        self.config['camera'].get('jpeg_quality', 85)
+                    ])
+                    
+                    if not ret:
+                        print("⚠️ Ошибка кодирования JPEG")
+                        continue
+                    
+                    frame_bytes = buffer.tobytes()
+                    
+                    yield (b'--frame\r\n'
+                        b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+                    
+                except Exception as e:
+                    print(f"⚠️ Ошибка кодирования: {e}")
+                    continue
+                
+            except Exception as e:
+                print(f"❌ Критическая ошибка в генераторе: {e}")
+                error_count += 1
+                
+                if error_count > 20:
+                    print("💥 Слишком много критических ошибок, останавливаем стрим")
+                    break
+                
+                time.sleep(0.1)
+        
+        print("🎬 Генератор кадров остановлен")
+    
+    def restart_stream_async(self):
+        """Асинхронный перезапуск стрима"""
+        time.sleep(1.0)
+        print("🔄 Стрим автоматически перезапущен после смены камеры")
+        
+        # Запускаем стрим снова
+        self.start_stream_internal()
+    
+    def start_stream_internal(self):
+        """Внутренняя функция запуска стрима"""
+        if not self.stream_active:
+            # Проверяем камеру
+            with self.camera_lock:
+                if self.current_camera is None:
+                    print("❌ Камера не инициализирована")
+                    return False
+                
+                if not self.current_camera.isOpened():
+                    print("❌ Камера не открыта")
+                    return False
+            
+            print("🎬 Подготовка к запуску стрима...")
+            
+            # Очищаем буфер
+            while not self.frame_buffer.empty():
+                try:
+                    self.frame_buffer.get_nowait()
+                except queue.Empty:
+                    break
+            
+            # Сбрасываем последний кадр
+            with self.frame_lock:
+                self.last_frame = None
+            
+            # Запускаем буферизатор
+            self.buffer_active = True
+            self.buffer_thread = threading.Thread(target=self.buffer_frames, daemon=True)
+            self.buffer_thread.start()
+            
+            # Даем время на заполнение буфера
+            print("⏳ Ожидание заполнения буфера...")
+            buffer_wait_start = time.time()
+            while self.frame_buffer.empty() and time.time() - buffer_wait_start < 3.0:
+                time.sleep(0.1)
+            
+            if self.frame_buffer.empty():
+                print("⚠️ Буфер не заполнился за 3 секунды, но продолжаем...")
+            
+            # Запускаем стрим
+            self.stream_active = True
+            self.frame_count = 0
+            
+            print(f"🎬 Стрим запущен (с буферизацией, буфер: {self.frame_buffer.qsize()}/30)")
+            return True
+        
+        return False
+    
+    def stop_stream_internal(self):
+        """Внутренняя функция остановки стрима"""
+        if self.stream_active:
+            # Останавливаем стрим
+            self.stream_active = False
+            
+            # Даем время на остановку генератора
+            time.sleep(0.5)
+            
+            # Останавливаем буферизатор
+            self.buffer_active = False
+            
+            # Даем время на остановку буферизатора
+            time.sleep(0.5)
+            
+            # Очищаем буфер
+            while not self.frame_buffer.empty():
+                try:
+                    self.frame_buffer.get_nowait()
+                except queue.Empty:
+                    break
+            
+            print("🎬 Стрим остановлен")
+    
     def get_client_info(self):
         """Получение информации о клиенте"""
         if hasattr(request, 'remote_addr'):
@@ -217,192 +412,67 @@ class CameraStreamer:
         user_agent = request.headers.get('User-Agent', 'Unknown')
         return user_ip, user_agent
     
-    def capture_frames(self):
-        """Захват кадров с камеры в буфер"""
-        print("📹 Запущен поток захвата кадров")
-        self.buffer_active = True
-        
-        while self.stream_active and self.buffer_active:
-            try:
-                with self.camera_lock:
-                    if self.current_camera and self.current_camera.isOpened():
-                        ret, frame = self.current_camera.read()
-                        if ret and frame is not None:
-                            self.frame_count += 1
-                            
-                            # Сохраняем последний кадр
-                            with self.frame_lock:
-                                self.last_frame = frame.copy()
-                            
-                            # Добавляем в буфер (неблокирующе)
-                            try:
-                                self.frame_buffer.put_nowait(frame)
-                            except queue.Full:
-                                # Если буфер полный, удаляем старый кадр
-                                try:
-                                    self.frame_buffer.get_nowait()
-                                    self.frame_buffer.put_nowait(frame)
-                                except:
-                                    pass
-                        else:
-                            # Ошибка чтения кадра
-                            time.sleep(0.1)
-                    else:
-                        # Камера не доступна
-                        time.sleep(0.5)
-            except Exception as e:
-                self.logger.log_error(f"Ошибка захвата кадра: {e}")
-                time.sleep(0.5)
-        
-        print("📹 Поток захвата кадров остановлен")
-    
-    def generate_from_buffer(self):
-        """Генератор для получения кадров из буфера"""
-        while self.stream_active:
-            try:
-                # Получаем кадр из буфера с таймаутом
-                frame = self.frame_buffer.get(timeout=2.0)
-                
-                # Кодируем в JPEG
-                jpeg_quality = self.config['camera'].get('jpeg_quality', 85)
-                ret, jpeg = cv2.imencode('.jpg', frame, 
-                                         [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality])
-                
-                if ret:
-                    yield (b'--frame\r\n'
-                           b'Content-Type: image/jpeg\r\n\r\n' + 
-                           jpeg.tobytes() + b'\r\n')
-                else:
-                    time.sleep(0.01)
-                    
-            except queue.Empty:
-                # Если буфер пуст, ждем немного
-                time.sleep(0.1)
-            except Exception as e:
-                self.logger.log_error(f"Ошибка в generate_from_buffer: {e}")
-                time.sleep(0.1)
-    
-    def get_fallback_image(self):
-        """Возвращает статичное изображение при перегрузке"""
-        # Создаем простое изображение
-        img = np.zeros((480, 640, 3), dtype=np.uint8)
-        img[:] = (40, 40, 40)  # Серый фон
-        
-        # Добавляем текст
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        cv2.putText(img, 'Too many streams', (150, 200), font, 1, (255, 255, 255), 2)
-        cv2.putText(img, 'Please try again later', (120, 250), font, 0.7, (200, 200, 200), 2)
-        
-        ret, buffer = cv2.imencode('.jpg', img)
-        frame_bytes = buffer.tobytes()
-        
-        return Response(
-            b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n',
-            mimetype='multipart/x-mixed-replace; boundary=frame'
-        )
-    
-    def start_stream_internal(self):
-        """Внутренний запуск стрима"""
-        if not self.stream_active:
-            self.stream_active = True
-            self.frame_count = 0
-            
-            # Запускаем поток захвата кадров
-            self.buffer_thread = threading.Thread(target=self.capture_frames, daemon=True)
-            self.buffer_thread.start()
-            
-            print("📹 Стрим запущен")
-            self.logger.log_info("Стрим видеопотока запущен")
-    
-    def stop_stream_internal(self):
-        """Внутренняя остановка стрима"""
-        if self.stream_active:
-            self.stream_active = False
-            self.buffer_active = False
-            
-            # Ожидаем завершения потока
-            if self.buffer_thread:
-                self.buffer_thread.join(timeout=3.0)
-                self.buffer_thread = None
-            
-            # Очищаем буфер
-            while not self.frame_buffer.empty():
-                try:
-                    self.frame_buffer.get_nowait()
-                except queue.Empty:
-                    break
-            
-            print("📹 Стрим остановлен")
-            self.logger.log_info("Стрим видеопотока остановлен")
-    
-    def restart_stream_async(self):
-        """Асинхронный перезапуск стрима"""
-        time.sleep(0.5)
-        self.start_stream_internal()
-    
-class CameraStreamer:
-    def __init__(self, config, logger, camera):
-        # ... существующий код ...
-        
-        # Словарь для отслеживания активных соединений по IP
-        self.active_clients = {}  # client_ip -> [connection_count, last_activity]
-        
-        self.MAX_STREAMS_PER_CLIENT = 1  # Максимум 1 стрим на клиента
-        self.MAX_TOTAL_STREAMS = 4       # Общий максимум стримов
-        
     def setup_routes(self):
         """Настройка маршрутов Flask"""
+        
+        @self.app.before_request
+        def log_request():
+            """Логирование всех запросов"""
+            if request.endpoint and request.endpoint not in ['static', 'video_feed']:
+                user_ip, user_agent = self.get_client_info()
+                
+                self.logger.log_info(f"🌐 Запрос: {request.method} {request.path} | "
+                                   f"IP: {user_ip} | "
+                                   f"Endpoint: {request.endpoint}")
+        
+        @self.app.route('/')
+        def index():
+            """Главная страница с видео потоком"""
+            user_ip, user_agent = self.get_client_info()
+            self.logger.log_web_action('page_load', 'success', 'Main page loaded', user_ip, user_agent)
+            return render_template('index.html')
         
         @self.app.route('/video_feed')
         def video_feed():
             """Маршрут для видео потока с ограничением"""
-            # Получаем IP клиента
-            client_ip = request.remote_addr if hasattr(request, 'remote_addr') else 'unknown'
-            client_id = f"{client_ip}_{request.args.get('t', str(time.time()))}"
-            
             with self.stream_lock:
-                # Проверяем лимит для конкретного клиента
-                client_streams = self.active_clients.get(client_ip, 0)
-                if client_streams >= self.MAX_STREAMS_PER_CLIENT:
-                    print(f"⚠️  Клиент {client_ip} уже имеет активный стрим")
-                    return self.get_fallback_image()
+                if self.active_streams >= self.MAX_CONCURRENT_STREAMS:
+                    print(f"⚠️  Превышено максимальное количество стримов: {self.active_streams}/{self.MAX_CONCURRENT_STREAMS}")
+                    # Возвращаем последний кадр вместо ошибки
+                    with self.frame_lock:
+                        if self.last_frame is not None:
+                            ret, buffer = cv2.imencode('.jpg', self.last_frame, [
+                                cv2.IMWRITE_JPEG_QUALITY, 
+                                self.config['camera'].get('jpeg_quality', 85)
+                            ])
+                            if ret:
+                                frame_bytes = buffer.tobytes()
+                                return Response(
+                                    b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n',
+                                    mimetype='multipart/x-mixed-replace; boundary=frame'
+                                )
+                    return Response("Too many streams", status=429)
                 
-                # Проверяем общий лимит
-                if self.active_streams >= self.MAX_TOTAL_STREAMS:
-                    print(f"⚠️  Превышено общее количество стримов: {self.active_streams}/{self.MAX_TOTAL_STREAMS}")
-                    return self.get_fallback_image()
-                
-                # Увеличиваем счетчики
                 self.active_streams += 1
-                self.active_clients[client_ip] = client_streams + 1
-                
-                print(f"📹 Клиент {client_ip} запросил video_feed (клиентских: {client_streams+1}, всего: {self.active_streams})")
+            
+            print(f"📹 Клиент запросил video_feed (активных стримов: {self.active_streams})")
             
             def generate_with_cleanup():
                 try:
                     for chunk in self.generate_from_buffer():
                         yield chunk
                 except GeneratorExit:
-                    print(f"📹 Клиент {client_ip} отключился")
+                    print("📹 Клиент отключился")
                 except Exception as e:
-                    print(f"📹 Ошибка: {e}")
+                    print(f"📹 Ошибка в генераторе: {e}")
                 finally:
                     with self.stream_lock:
-                        # Уменьшаем счетчики
-                        if self.active_streams > 0:
-                            self.active_streams -= 1
-                        
-                        client_streams = self.active_clients.get(client_ip, 0)
-                        if client_streams > 0:
-                            self.active_clients[client_ip] = client_streams - 1
-                            if self.active_clients[client_ip] <= 0:
-                                del self.active_clients[client_ip]
-                        
-                        print(f"📹 Стрим завершен для {client_ip} (осталось: клиентских: {self.active_clients.get(client_ip,0)}, всего: {self.active_streams})")
+                        self.active_streams = max(0, self.active_streams - 1)
+                        print(f"📹 video_feed завершен (осталось стримов: {self.active_streams})")
             
             return Response(generate_with_cleanup(),
                             mimetype='multipart/x-mixed-replace; boundary=frame')
-            
+        
         @self.app.route('/api/stream/start', methods=['POST'])
         def start_stream():
             """Запуск видеопотока"""
@@ -637,11 +707,11 @@ class CameraStreamer:
                         'message': 'Камера работает',
                         'resolution': f'{width}x{height}',
                         'fps': fps,
-                        'frame_size': f'{frame.shape[1]}x{frame.shape[0]}' if frame is not None else None
+                        'frame_size': frame.shape if frame is not None else None
                     })
                 else:
                     return jsonify({'status': 'error', 'message': 'Не удалось прочитать кадр'})
-
+    
     def run(self):
         """Запуск сервера"""
         try:
@@ -696,7 +766,7 @@ def main():
     # Загружаем конфигурацию
     config = load_config(args.config)
     
-    # Логируем информацию о запуске (без camera_info)
+    # Логируем информацию о запуске
     logger.log_startup_info(config)
     
     print("=" * 60)
