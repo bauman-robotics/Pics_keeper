@@ -1,0 +1,28 @@
+<!-- base.html -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Webcam Stream с управлением{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <div class="container">
+        <h1>🎥 {% block header %}Webcam Stream с управлением{% endblock %}</h1>
+        
+        {% block content %}{% endblock %}
+        
+        {% include 'components/camera_modal.html' %}
+        
+        <div class="footer">
+            <p>Сервер: http://localhost:5000</p>
+            <p>Поток: http://localhost:5000/video_feed</p>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

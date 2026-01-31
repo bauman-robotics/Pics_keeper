@@ -11,10 +11,10 @@ import threading
 import time
 import queue
 import copy
-import os
-import numpy as np
 from flask import Flask, Response, render_template, jsonify, request
 import argparse
+import os
+import numpy as np
 from utils.camera_checker import CameraChecker
 
 # Импортируем логгер
@@ -159,75 +159,33 @@ class CameraStreamer:
         
         # Управление подключениями
         self.active_streams = 0
-        self.MAX_CONCURRENT_STREAMS = config['server'].get('max_concurrent_streams', 4)
+        self.MAX_CONCURRENT_STREAMS = config['server'].get('max_concurrent_streams', 2)
         self.stream_lock = threading.Lock()
         
-        # Словарь для отслеживания активных соединений
-        self.active_clients = {}
-        self.MAX_STREAMS_PER_CLIENT = 1
-        
-        # Определяем путь к шаблонам
-        templates_folder = config.get('paths', {}).get('templates_folder', 'templates')
-        
-        # Полный путь к шаблонам
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        full_templates_path = os.path.join(current_dir, templates_folder)
-        
-        # Проверяем существование папки
-        if not os.path.exists(full_templates_path):
-            print(f"⚠️  Папка шаблонов не найдена: {full_templates_path}")
-            print(f"   Создаю папку {full_templates_path}")
-            os.makedirs(full_templates_path, exist_ok=True)
-            
-            # Создаем простой index.html если его нет
-            index_path = os.path.join(full_templates_path, 'index.html')
-            if not os.path.exists(index_path):
-                with open(index_path, 'w') as f:
-                    f.write('''<!DOCTYPE html>
-<html>
-<head>
-    <title>Webcam Stream</title>
-</head>
-<body>
-    <h1>🎥 Webcam Stream</h1>
-    <div id="status">Сервер работает!</div>
-    <a href="/status">Статус</a> | 
-    <a href="/logs">Логи</a>
-</body>
-</html>''')
-        
-        print(f"📁 Папка шаблонов: {full_templates_path}")
-        
-        # Инициализация Flask с абсолютным путем
-        self.app = Flask(__name__, template_folder=full_templates_path)
+        # Инициализация Flask
+        app_config = config['server']
+        self.app = Flask(__name__, template_folder=config['paths']['templates_folder'])
         
         # Настройка маршрутов
         self.setup_routes()
         
         # Сканируем доступные камеры
-        try:
-            self.camera_checker = CameraChecker()
-            self.available_cameras = self.camera_checker.detect_cameras()
-        except Exception as e:
-            print(f"⚠️  Ошибка сканирования камер: {e}")
-            self.available_cameras = []
-        
+        self.camera_checker = CameraChecker()
+        self.available_cameras = self.camera_checker.detect_cameras()
+
         # Добавляем отслеживание времени активности стримов
         self.stream_sessions = {}  # client_id -> timestamp
         
         # Таймер для очистки старых стримов
         self.cleanup_timer = threading.Timer(30.0, self.cleanup_old_streams)
         self.cleanup_timer.daemon = True
-        self.cleanup_timer.start()
+        self.cleanup_timer.start()  
+
+        # Словарь для отслеживания активных соединений по IP
+        self.active_clients = {}  # client_ip -> [connection_count, last_activity]
         
-        print(f"✅ CameraStreamer инициализирован")
-
-        # Кэш для списка камер
-        self.cameras_cache = None
-        self.cameras_cache_time = 0
-        self.CAMERAS_CACHE_TTL = 30  # секунд
-
-
+        self.MAX_STREAMS_PER_CLIENT = 1  # Максимум 1 стрим на клиента
+        self.MAX_TOTAL_STREAMS = 4       # Общий максимум стримов              
 
     def cleanup_old_streams(self):
         """Очистка старых стримов"""
@@ -248,7 +206,7 @@ class CameraStreamer:
         # Перезапускаем таймер
         self.cleanup_timer = threading.Timer(30.0, self.cleanup_old_streams)
         self.cleanup_timer.daemon = True
-        self.cleanup_timer.start()
+        self.cleanup_timer.start()       
 
     def get_client_info(self):
         """Получение информации о клиенте"""
@@ -372,7 +330,7 @@ class CameraStreamer:
                 self.buffer_thread.join(timeout=3.0)
                 self.buffer_thread = None
             
-            # Очищаем буфер полностью
+            # ОЧИЩАЕМ БУФЕР полностью
             while not self.frame_buffer.empty():
                 try:
                     self.frame_buffer.get_nowait()
@@ -387,34 +345,86 @@ class CameraStreamer:
         time.sleep(0.5)
         self.start_stream_internal()
     
+import os  # Добавьте в начало файла
+
+class CameraStreamer:
+    def __init__(self, config, logger, camera):
+        self.config = config
+        self.logger = logger
+        self.current_camera = camera
+        
+        # Состояние стрима
+        self.stream_active = False
+        self.buffer_active = False
+        self.frame_count = 0
+        
+        # Буферизация
+        self.frame_buffer = queue.Queue(maxsize=30)
+        self.camera_lock = threading.Lock()
+        self.frame_lock = threading.Lock()
+        self.last_frame = None
+        self.buffer_thread = None
+        
+        # Управление подключениями
+        self.active_streams = 0
+        self.MAX_CONCURRENT_STREAMS = config['server']['max_concurrent_streams']
+        self.stream_lock = threading.Lock()
+        
+        # Словарь для отслеживания активных соединений
+        self.active_clients = {}
+        self.MAX_STREAMS_PER_CLIENT = 1
+        
+        # ВАЖНО: Определяем путь к шаблонам
+        # Получаем путь из конфига
+        templates_folder = config.get('paths', {}).get('templates_folder', 'templates')
+        
+        # Полный путь к шаблонам
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        full_templates_path = os.path.join(current_dir, templates_folder)
+        
+        # Проверяем существование папки
+        if not os.path.exists(full_templates_path):
+            print(f"⚠️  Папка шаблонов не найдена: {full_templates_path}")
+            print(f"   Создаю папку {full_templates_path}")
+            os.makedirs(full_templates_path, exist_ok=True)
+            
+            # Создаем простой index.html если его нет
+            index_path = os.path.join(full_templates_path, 'index.html')
+            if not os.path.exists(index_path):
+                with open(index_path, 'w') as f:
+                    f.write('''<!DOCTYPE html>
+                    <html>
+                    <head>
+                        <title>Webcam Stream</title>
+                    </head>
+                    <body>
+                        <h1>🎥 Webcam Stream</h1>
+                        <div id="status">Сервер работает!</div>
+                        <a href="/status">Статус</a> | 
+                        <a href="/logs">Логи</a>
+                    </body>
+                    </html>''')
+        
+        print(f"📁 Папка шаблонов: {full_templates_path}")
+        
+        # Инициализация Flask с абсолютным путем
+        self.app = Flask(__name__, template_folder=full_templates_path)
+        
+        # Настройка маршрутов
+        self.setup_routes()
+        
+        # Сканируем доступные камеры
+        try:
+            self.camera_checker = CameraChecker()
+            self.available_cameras = self.camera_checker.detect_cameras()
+        except Exception as e:
+            print(f"⚠️  Ошибка сканирования камер: {e}")
+            self.available_cameras = []
+        
+        print(f"✅ CameraStreamer инициализирован")
+        
     def setup_routes(self):
         """Настройка маршрутов Flask"""
-        
-        @self.app.before_request
-        def log_request():
-            """Логирование всех запросов"""
-            if request.endpoint and request.endpoint not in ['static', 'video_feed']:
-                user_ip, user_agent = self.get_client_info()
-                self.logger.log_info(f"🌐 Запрос: {request.method} {request.path}")
-        
-        # ОБЯЗАТЕЛЬНО: Маршрут главной страницы
-        @self.app.route('/')
-        def index():
-            """Главная страница"""
-            try:
-                return render_template('index.html')
-            except Exception as e:
-                return f'''
-                <html>
-                <head><title>Webcam Stream</title></head>
-                <body>
-                    <h1>🎥 Webcam Stream</h1>
-                    <p>Сервер работает!</p>
-                    <p>Шаблон не найден, создайте index.html в папке templates</p>
-                    <p><a href="/status">Статус</a> | <a href="/logs">Логи</a></p>
-                </body>
-                </html>
-                '''
         
         @self.app.route('/video_feed')
         def video_feed():
@@ -431,8 +441,8 @@ class CameraStreamer:
                     return self.get_fallback_image()
                 
                 # Проверяем общий лимит
-                if self.active_streams >= self.MAX_CONCURRENT_STREAMS:
-                    print(f"⚠️  Превышено общее количество стримов: {self.active_streams}/{self.MAX_CONCURRENT_STREAMS}")
+                if self.active_streams >= self.MAX_TOTAL_STREAMS:
+                    print(f"⚠️  Превышено общее количество стримов: {self.active_streams}/{self.MAX_TOTAL_STREAMS}")
                     return self.get_fallback_image()
                 
                 # Увеличиваем счетчики
@@ -536,53 +546,54 @@ class CameraStreamer:
         
         @self.app.route('/api/cameras')
         def get_cameras():
-            """Получение списка доступных камер (быстрая версия)"""
-            try:
-                # Используем быстрый метод
-                available_cameras = self.camera_checker.get_quick_cameras_list()
-                
-                camera_list = []
-                
-                for cam in available_cameras:
-                    # Если это не камера, пропускаем
-                    if not cam.get('is_camera', False):
-                        continue
-                        
-                    device_path = cam.get('device_path', '')
-                    if not device_path:
-                        continue
+            """Получение списка доступных камер"""
+            camera_list = []
+            
+            for cam in self.available_cameras:
+                try:
+                    # Безопасное получение данных
+                    device_path = cam.get('device_path', 'unknown')
                     
-                    # Упрощенная структура данных
+                    # Форматы
+                    formats = cam.get('formats', [])
+                    
+                    # Преобразуем resolutions_info в простой список разрешений
+                    resolutions_info = cam.get('resolutions_info', {})
+                    resolutions = []
+                    
+                    # Извлекаем все уникальные разрешения из resolutions_info
+                    for fmt, res_dict in resolutions_info.items():
+                        if isinstance(res_dict, dict):
+                            for resolution in res_dict.keys():
+                                if resolution not in resolutions:
+                                    resolutions.append(resolution)
+                    
+                    # Получаем имя камеры с проверкой
+                    camera_name = device_path  # значение по умолчанию
+                    try:
+                        if hasattr(self.camera_checker, '_get_camera_name'):
+                            camera_name = self.camera_checker._get_camera_name(device_path)
+                    except:
+                        pass
+                    
                     camera_info = {
                         'device_path': device_path,
-                        'name': cam.get('name', device_path),
-                        'formats': cam.get('formats', [])[:2],  # Максимум 2 формата
-                        'resolutions': cam.get('resolutions', [])[:3],  # Максимум 3 разрешения
+                        'name': camera_name,
+                        'formats': formats,
+                        'resolutions': resolutions,
                         'is_current': device_path == self.config['camera']['device']
                     }
-                    
                     camera_list.append(camera_info)
-                
-                return jsonify({
-                    'cameras': camera_list,
-                    'total': len(camera_list),
-                    'current_device': self.config['camera']['device']
-                })
-                
-            except Exception as e:
-                print(f"❌ Ошибка получения списка камер: {e}")
-                # Возвращаем только текущую камеру
-                return jsonify({
-                    'cameras': [{
-                        'device_path': self.config['camera']['device'],
-                        'name': 'Текущая камера',
-                        'formats': ['MJPG'],
-                        'resolutions': ['640x480'],
-                        'is_current': True
-                    }],
-                    'total': 1,
-                    'current_device': self.config['camera']['device']
-                })
+                    
+                except Exception as e:
+                    print(f"⚠️  Ошибка обработки камеры: {e}")
+                    continue
+            
+            return jsonify({
+                'cameras': camera_list,
+                'total': len(camera_list),
+                'current_device': self.config['camera']['device']
+            })
         
         @self.app.route('/api/cameras/select', methods=['POST'])
         def select_camera():
@@ -660,6 +671,12 @@ class CameraStreamer:
                             self.logger.log_web_action('select_camera', 'error', 
                                                     f'Failed to open camera {device_path}',
                                                     user_ip, user_agent)
+                            
+                            # Пробуем восстановить старую камеру
+                            if was_streaming:
+                                print("⚠️  Пробую восстановить старую камеру...")
+                                # Здесь можно попробовать восстановить старую камеру
+                            
                             return jsonify({'status': 'error', 'message': 'Не удалось открыть камеру'})
                             
                     except Exception as e:
@@ -672,6 +689,7 @@ class CameraStreamer:
                 self.logger.log_web_action('select_camera', 'error', f'Unexpected error: {str(e)}',
                                         user_ip, user_agent)
                 return jsonify({'status': 'error', 'message': f'Неожиданная ошибка: {str(e)}'})
+            
             
         @self.app.route('/status')
         def status_page():
@@ -734,8 +752,6 @@ class CameraStreamer:
             print("\n\n⏹️  Получен сигнал остановки...")
         except Exception as e:
             print(f"\n❌ Ошибка запуска сервера: {e}")
-            import traceback
-            traceback.print_exc()
         finally:
             self.cleanup()
     
@@ -744,18 +760,17 @@ class CameraStreamer:
         print("\n🧹 Очистка ресурсов...")
         
         # Останавливаем стрим
-        if hasattr(self, 'stream_active') and self.stream_active:
+        if self.stream_active:
             self.stop_stream_internal()
         
         # Закрываем камеру
-        if hasattr(self, 'camera_lock'):
-            with self.camera_lock:
-                if hasattr(self, 'current_camera') and self.current_camera:
-                    try:
-                        self.current_camera.release()
-                        print("✅ Камера освобождена")
-                    except Exception as e:
-                        print(f"⚠️  Ошибка при освобождении камеры: {e}")
+        with self.camera_lock:
+            if self.current_camera:
+                try:
+                    self.current_camera.release()
+                    print("✅ Камера освобождена")
+                except Exception as e:
+                    print(f"⚠️  Ошибка при освобождении камеры: {e}")
         
         print("👋 Сервер остановлен")
 
@@ -771,7 +786,7 @@ def main():
     # Загружаем конфигурацию
     config = load_config(args.config)
     
-    # Логируем информацию о запуске
+    # Логируем информацию о запуске (без camera_info)
     logger.log_startup_info(config)
     
     print("=" * 60)
@@ -783,22 +798,19 @@ def main():
     if camera is None:
         logger.log_error("НЕ НАЙДЕНА РАБОЧАЯ КАМЕРА!")
         print("\n❌ НЕ НАЙДЕНА РАБОЧАЯ КАМЕРА!")
+        print("\nПопробуйте:")
+        print("  1. sudo apt install v4l-utils")
+        print("  2. v4l2-ctl -d /dev/video0 --list-formats-ext")
+        print("  3. cheese  (для теста камеры)")
+        print("\nИли измените настройки камеры в конфигурационном файле")
         sys.exit(1)
     
     print("\n✅ Камера найдена и готова к работе!")
-    print(f"📁 Текущая директория: {os.getcwd()}")
-    print(f"📁 Путь к скрипту: {os.path.dirname(os.path.abspath(__file__))}")
     print("=" * 60)
     
     # Создаем и запускаем стример
-    try:
-        streamer = CameraStreamer(config, logger, camera)
-        streamer.run()
-    except Exception as e:
-        print(f"❌ Ошибка создания CameraStreamer: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+    streamer = CameraStreamer(config, logger, camera)
+    streamer.run()
 
 if __name__ == '__main__':
     main()

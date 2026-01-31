@@ -1,0 +1,64 @@
+<!-- index.html -->
+{% extends "base.html" %}
+
+{% block content %}
+    <div class="controls">
+        <button class="btn btn-start" id="start-btn" onclick="startStream()">▶️ Запустить</button>
+        <button class="btn btn-stop" id="stop-btn" onclick="stopStream()" disabled>⏹️ Остановить</button>
+        <button class="btn btn-secondary" onclick="checkCamera()" title="Проверить состояние камеры">🔍 Проверить</button>
+        <button class="btn btn-secondary" onclick="refreshStream()" id="refresh-btn" title="Обновить видеопоток">🔄 Обновить</button>
+        <button class="btn btn-secondary" onclick="restartStream()" id="restart-btn" title="Перезапустить стрим">🔄 Перезапустить</button>
+    </div>
+    
+    <div class="status-panel">
+        <div class="status-row">
+            <span>Статус стрима:</span>
+            <span id="stream-status">
+                <span class="status-indicator inactive"></span>
+                <strong>Остановлен</strong>
+            </span>
+        </div>
+        <div class="status-row">
+            <span>Количество кадров:</span>
+            <span id="frame-count">0</span>
+        </div>
+        <div class="status-row">
+            <span>Соединение:</span>
+            <span id="connection-status">Не подключено</span>
+        </div>
+    </div>
+    
+    <div class="status-panel" id="camera-status-panel" style="margin-top: 10px;">
+        <div class="status-row">
+            <span>Текущая камера:</span>
+            <span id="current-camera">Загрузка...</span>
+        </div>
+        <div class="status-row">
+            <span>Состояние камеры:</span>
+            <span id="camera-ready-status">
+                <span class="status-indicator inactive"></span>
+                <strong>Проверка...</strong>
+            </span>
+        </div>
+    </div>
+    
+    <div class="camera-selection">
+        <h3>📹 Выбор камеры</h3>
+        <div id="camera-list" class="camera-list">
+            <div class="loading">Загрузка списка камер...</div>
+        </div>
+    </div>
+    
+    <!-- УБЕРИТЕ style="display: none;" -->
+    <div class="video-container">
+        <img src="{{ url_for('video_feed') }}" alt="Video Stream" id="video-stream">
+    </div>
+    
+    <div style="margin-top: 20px;">
+        <button class="btn btn-secondary" onclick="showCameras()">
+            📋 Показать все камеры
+        </button>
+        <a href="/status" class="btn btn-secondary">📊 Статус сервера</a>
+        <a href="/logs" class="btn btn-secondary">📝 Логи</a>
+    </div>
+{% endblock %}
