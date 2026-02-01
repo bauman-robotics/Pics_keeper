@@ -800,19 +800,30 @@ class CameraStreamer:
             try:
                 available_cameras = []
                 
-                # 1. USB камеры через V4L2
+                # 1. USB камеры через V4L2 (исключая CSI)
                 usb_cameras = self.camera_checker.get_cameras_for_api()
+                
+                # Используем метод из CameraChecker для проверки
                 for cam in usb_cameras:
+                    name = cam.get('name', '')
+                    
+                    # ПРОВЕРЯЕМ: пропускаем CSI камеры, используя метод из CameraChecker
+                    if self.camera_checker._is_csi_camera_by_name(name):
+                        print(f"🔄 Пропускаем CSI камеру в USB списке: {name}")
+                        continue
+                        
                     if cam.get('is_camera', False):
-                        cam['type'] = 'USB'
+                        cam['type'] = 'USB'  # Явно указываем тип
                         cam['device_path'] = cam.get('device_path', '')
                         cam['is_current'] = False
+                        
                         # Проверяем, является ли эта камера текущей
                         if self.camera_type == 'v4l2' and self.current_v4l2_camera:
                             current_path = self.config['camera'].get('device', '')
                             if isinstance(current_path, int):
                                 current_path = f"/dev/video{current_path}"
                             cam['is_current'] = cam['device_path'] == current_path
+                            
                         available_cameras.append(cam)
                 
                 # 2. CSI камеры через Picamera2
@@ -820,7 +831,7 @@ class CameraStreamer:
                     csi_info = {
                         'device_path': f"csi_{cam['index']}",
                         'name': cam['name'],
-                        'type': 'CSI',
+                        'type': 'CSI',  # Явно указываем тип
                         'formats': ['RGB888', 'BGR888'],
                         'resolutions': ['4608x2592', '1920x1080', '1280x720'],
                         'is_camera': True,

@@ -505,6 +505,11 @@ class CameraChecker:
             if name not in seen_names or not seen_names:
                 seen_names.add(name)
                 
+                # ПРОВЕРЯЕМ: если это CSI камера - пропускаем (она будет добавлена отдельно в endpoint)
+                if self._is_csi_camera_by_name(name):
+                    print(f"🔄 Пропускаем CSI камеру в USB списке: {name}")
+                    continue
+                
                 # Упрощаем данные для API
                 api_cam = {
                     'device_path': cam['device_path'],
@@ -522,6 +527,32 @@ class CameraChecker:
         
         return unique_cameras
     
+    def _is_csi_camera_by_name(self, name: str) -> bool:
+        """Определяет по названию, является ли камера CSI"""
+        if not name:
+            return False
+        
+        name_lower = name.lower()
+        
+        # Признаки CSI камер Raspberry Pi
+        csi_indicators = [
+            'csi',            # CSI в названии
+            'rp1-cfe',        # Raspberry Pi Camera Foundation
+            'platform:',      # platform: в названии (для RPi)
+            'bcm2835',        # Broadcom CSI
+            'imx',           # Sony IMX датчики (часто CSI)
+            'ov',            # OmniVision датчики
+            'arducam',       # Arducam модули (часто CSI)
+            'picamera',      # Raspberry Pi Camera
+            'raspberry',     # Raspberry Pi
+        ]
+        
+        for indicator in csi_indicators:
+            if indicator in name_lower:
+                return True
+        
+        return False
+
     def _extract_resolutions_simple(self, camera_info: Dict) -> List[str]:
         """Извлечь упрощенный список разрешений"""
         resolutions_info = camera_info.get('resolutions_info', {})
