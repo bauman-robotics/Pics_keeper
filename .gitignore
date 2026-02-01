@@ -211,6 +211,6 @@ venv/
 000_info/
 002_logs/
 003_pics/
-01_pics_keeper.py
+# 01_pics_keeper.py
 
 004_code_flask_web_stream/temp/      
