@@ -7,7 +7,7 @@ server:
   port: 5000                # Порт сервера
   debug: false              # Режим отладки
   threaded: true            # Многопоточный режим
-  max_concurrent_streams: 4  # Добавьте эту строку
+  max_concurrent_streams: 10  # Добавьте эту строку
 
 raspberry_pi: true  # <--- Флаг для Raspberry Pi
 save_test_frame: false  # Сохранять тестовый кадр для проверки

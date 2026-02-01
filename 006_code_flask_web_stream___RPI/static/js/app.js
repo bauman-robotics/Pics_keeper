@@ -1,50 +1,91 @@
 // ----------------- app.js -------------------------------------------------
+
+// Глобальные обработчики видео
+window.videoErrorCount = 0;
+window.MAX_VIDEO_ERRORS = 5;
+
+window.onVideoLoad = function() {
+    console.log('✅ Видео загружено');
+    window.videoErrorCount = 0; // Сбрасываем счетчик ошибок
+    const placeholder = document.getElementById('video-placeholder');
+    if (placeholder) {
+        placeholder.style.display = 'none';
+        placeholder.style.opacity = '0';
+    }
+    
+    // Убираем обработчик ошибок после успешной загрузки
+    const video = document.getElementById('video-stream');
+    if (video) {
+        video.onerror = null;
+    }
+};
+
+window.onVideoError = function() {
+    window.videoErrorCount++;
+    console.log(`❌ Ошибка загрузки видео (${window.videoErrorCount}/${window.MAX_VIDEO_ERRORS})`);
+    
+    const placeholder = document.getElementById('video-placeholder');
+    if (placeholder) {
+        placeholder.style.display = 'flex';
+        placeholder.style.opacity = '1';
+    }
+    
+    // Если слишком много ошибок - не пытаемся дальше
+    if (window.videoErrorCount >= window.MAX_VIDEO_ERRORS) {
+        console.log('⚠️ Превышено максимальное количество ошибок видео');
+        return;
+    }
+    
+    // Пытаемся восстановить через 2 секунды
+    setTimeout(() => {
+        if (window.streamController && window.streamController.isStreamActive) {
+            console.log('🔄 Пытаюсь восстановить видео...');
+            window.streamController.refreshVideo();
+        }
+    }, 2000);
+};
+
 class StreamController {
     constructor() {
-
-        // === ПАТТЕРН СИНГЛТОН: если уже существует, возвращаем существующий ===
+        // === ПАТТЕРН СИНГЛТОН ===
         if (window.__streamControllerInstance) {
             console.log('⚠️ StreamController уже создан, возвращаю существующий экземпляр');
             return window.__streamControllerInstance;
         } 
-        // Сохраняем ссылку на себя
+        
         window.__streamControllerInstance = this;
 
-        // === ОБЯЗАТЕЛЬНО ДОБАВЬТЕ ЭТИ ЛОГИ ===
         console.log('🛠️ === КОНСТРУКТОР StreamController ВЫЗВАН ===');
-        console.trace('📌 Трассировка вызова конструктора');
+        
+        // Определяем обновление страницы
+        this.isPageRefresh = performance.navigation?.type === 1;
+        console.log('📊 Страница:', this.isPageRefresh ? 'ОБНОВЛЕНИЕ' : 'НОВАЯ');
         
         // Основные свойства
         this.isStreamActive = false;
         this.currentDevicePath = null;
         this.cameraType = null;
+        this._autoStartCalled = false;
+        this._videoInitialized = false;
         
-        // КОНФИГУРАЦИЯ - ГАРАНТИРОВАННЫЙ АВТОЗАПУСК
+        // Конфигурация
         this.config = {
-            stream: { 
-                auto_start: true // ← ГАРАНТИРОВАННО true
-            },
-            camera: { 
-                device: '/dev/video4'
-            }
+            stream: { auto_start: true },
+            camera: { device: '/dev/video4' }
         };
         
-        // ВАЖНО: ЛОГИРУЕМ ЗНАЧЕНИЕ AUTO_START
-        console.log('⚙️ КОНФИГУРАЦИЯ В КОНСТРУКТОРЕ:');
-        console.log('  auto_start =', this.config.stream.auto_start);
-        console.log('  тип =', typeof this.config.stream.auto_start);
-        console.log('  вся конфигурация:', JSON.stringify(this.config));
-        
-        if (this.config.stream.auto_start === true) {
-            console.log('✅ АВТОЗАПУСК ВКЛЮЧЕН (значение: true, тип: boolean)');
-        } else {
-            console.log('❌ ПРОБЛЕМА: auto_start не true! Значение:', this.config.stream.auto_start);
-        }
+        console.log('✅ АВТОЗАПУСК ВКЛЮЧЕН');
         
         // Элементы DOM
         this.videoElement = document.getElementById('video-stream');
         
-        // Флаги для защиты от бесконечных вызовов
+        // Сбрасываем счетчик ошибок
+        window.videoErrorCount = 0;
+        
+        // Инициализируем видео
+        this.initVideoElement();
+        
+        // Флаги
         this.isCheckingStatus = false;
         this.isLoadingCameras = false;
         this.lastStatusCheck = 0;
@@ -54,28 +95,164 @@ class StreamController {
         this.statusInterval = null;
         this.videoRefreshTimer = null;
         
-        // Инициализация с защитой
-        this.init();
+        // Сразу активируем UI
+        this.activateUIElements();
         
-
-
-        console.log('✅ АВТОЗАПУСК ВКЛЮЧЕН (значение: true, тип: boolean)');
+        // Запускаем инициализацию с задержкой
+        const initDelay = this.isPageRefresh ? 3000 : 1000;
+        console.log(`⏳ Инициализация через ${initDelay}мс...`);
         
-        // === ДОБАВЬТЕ ЭТО СРАЗУ ПОСЛЕ ЛОГА ===
-        console.log('🚨 НЕМЕДЛЕННЫЙ ЗАПУСК АВТОЗАПУСКА ИЗ КОНСТРУКТОРА');
-        
-        // Запускаем handleAutoStart через 1 секунду
         setTimeout(() => {
-            console.log('⏰ ТАЙМЕР: запускаю handleAutoStart()');
-            if (typeof this.handleAutoStart === 'function') {
-                this.handleAutoStart();
-            } else {
-                console.error('❌ handleAutoStart не является функцией!');
-            }
-        }, 1000);
-
+            this.init().then(() => {
+                console.log('✅ Инициализация завершена');
+                this.scheduleAutoStart();
+            }).catch(error => {
+                console.error('❌ Ошибка инициализации:', error);
+                this.scheduleAutoStart();
+            });
+        }, initDelay);
+    }
+    
+    // Добавьте этот метод для инициализации видео элемента
+    // ДОБАВЬТЕ ЭТОТ МЕТОД СРАЗУ ПОСЛЕ КОНСТРУКТОРА:
+    initVideoElement() {
+        console.log('🎬 initVideoElement вызван');
+        
+        // Находим элемент
+        this.videoElement = document.getElementById('video-stream');
+        
+        if (!this.videoElement) {
+            console.error('❌ Элемент video-stream не найден в DOM');
+            return;
+        }
+        
+        console.log('📊 Обнаружен элемент:', {
+            tagName: this.videoElement.tagName,
+            id: this.videoElement.id,
+            isIMG: this.videoElement.tagName === 'IMG',
+            isVIDEO: this.videoElement.tagName === 'VIDEO'
+        });
+        
+        // Работаем в зависимости от типа элемента
+        if (this.videoElement.tagName === 'IMG') {
+            console.log('ℹ️ Работаю с IMG элементом');
+            
+            // Для IMG просто устанавливаем обработчики
+            this.videoElement.onload = window.onVideoLoad;
+            this.videoElement.onerror = window.onVideoError;
+            
+            this._videoInitialized = true;
+            console.log('✅ IMG элемент инициализирован');
+            
+        } else if (this.videoElement.tagName === 'VIDEO') {
+            console.log('✅ Работаю с VIDEO элементом');
+            
+            // Устанавливаем атрибуты для VIDEO
+            this.videoElement.autoplay = true;
+            this.videoElement.playsinline = true;
+            this.videoElement.muted = true;
+            this.videoElement.setAttribute('webkit-playsinline', 'true');
+            this.videoElement.preload = 'auto';
+            
+            this.videoElement.onloadeddata = window.onVideoLoad;
+            this.videoElement.onerror = window.onVideoError;
+            
+            this._videoInitialized = true;
+            console.log('✅ VIDEO элемент инициализирован');
+            
+        } else {
+            console.error(`❌ Неподдерживаемый элемент: ${this.videoElement.tagName}`);
+        }
+    }
+    
+    // Добавьте этот метод после initVideoElement
+    checkVideoElement() {
+        if (!this.videoElement) {
+            this.videoElement = document.getElementById('video-stream');
+        }
+        
+        if (!this.videoElement) {
+            console.error('❌ Элемент video-stream не найден');
+            return false;
+        }
+        
+        // Принимаем как IMG так и VIDEO
+        if (this.videoElement.tagName !== 'IMG' && this.videoElement.tagName !== 'VIDEO') {
+            console.error(`❌ Неподдерживаемый тип элемента: ${this.videoElement.tagName}`);
+            return false;
+        }
+        
+        console.log(`✅ Элемент корректен: ${this.videoElement.tagName}`);
+        return true;
+    } 
+        
+    // Активация элементов UI
+    activateUIElements() {
+        console.log('🎨 Активация элементов UI...');
+        
+        // Активируем видео элемент
+        if (this.videoElement) {
+            this.videoElement.style.pointerEvents = 'auto';
+            this.videoElement.style.opacity = '1';
+        }
+        
+        // Активируем кнопки
+        setTimeout(() => {
+            document.querySelectorAll('button, select, input, .btn').forEach(el => {
+                el.disabled = false;
+                el.style.pointerEvents = 'auto';
+                el.style.opacity = '1';
+            });
+            
+            // Специально активируем кнопки управления стримом
+            ['start-btn', 'stop-btn', 'refresh-btn'].forEach(id => {
+                const btn = document.getElementById(id);
+                if (btn) {
+                    btn.disabled = false;
+                    btn.style.pointerEvents = 'auto';
+                    btn.style.opacity = '1';
+                    btn.classList.remove('disabled');
+                }
+            });
+        }, 100);
+    }
+    
+    // Планирование автостарта
+    scheduleAutoStart() {
+        console.log('⏰ Планирование автостарта...');
+        
+        if (this._autoStartCalled) {
+            console.log('⏸️ Автостарт уже запланирован');
+            return;
+        }
+        
+        const delay = this.isPageRefresh ? 4000 : 1000;
+        console.log(`⏳ Запуск через ${delay}мс...`);
+        
+        setTimeout(() => {
+            console.log('▶️ Запускаю автостарт...');
+            this._autoStartCalled = true;
+            this.handleAutoStart();
+        }, delay);
     }
 
+    
+    // Мониторинг UI
+    startUIMonitoring() {
+        // Останавливаем предыдущий мониторинг
+        if (this.uiMonitorInterval) {
+            clearInterval(this.uiMonitorInterval);
+        }
+        
+        // Проверяем UI каждые 2 секунды
+        this.uiMonitorInterval = setInterval(() => {
+            const disabledElements = document.querySelectorAll('button[disabled], select[disabled], input[disabled]');
+            if (disabledElements.length > 3) {
+                console.warn(`⚠️ Обнаружено ${disabledElements.length} заблокированных элементов, активирую...`);
+                this.activateUIElements();
+            }
+        }, 2000);
+    }
 
     updateInitialDisplay() {
         // Показываем базовый статус
@@ -91,45 +268,69 @@ class StreamController {
         }
     }    
 
-    // === ДОБАВЬТЕ ЭТОТ МЕТОД В КЛАСС ===
-    async handleAutoStart() {
-        // ЗАЩИТА от повторного вызова
-        if (this._autoStartCalled) {
-            console.log('⏸️ handleAutoStart уже был вызван, пропускаю');
+
+    // Добавьте в класс после scheduleAutoStart()
+    attemptReconnect() {
+        if (this.reconnectAttempts >= this.MAX_RECONNECT_ATTEMPTS) {
+            console.error('❌ Превышено максимальное количество попыток восстановления');
+            this.showToast('Не удалось восстановить стрим. Перезагрузите страницу.', 'error');
             return;
         }
         
-        this._autoStartCalled = true;
+        this.reconnectAttempts++;
+        const delay = this.reconnectAttempts * 3000;
         
-        console.log('🎯 === НАЧАЛО handleAutoStart() ===');
-        console.log('📊 Проверяем конфигурацию:', {
-            auto_start: this.config?.stream?.auto_start,
-            isStreamActive: this.isStreamActive
-        });
+        console.log(`🔄 Попытка восстановления ${this.reconnectAttempts}/${this.MAX_RECONNECT_ATTEMPTS} через ${delay}мс`);
         
-        // Если автозапуск включен и стрим не активен
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+        }
+        
+        this.reconnectTimer = setTimeout(async () => {
+            console.log('🔄 Выполняю восстановление соединения...');
+            try {
+                await this.startStream();
+                console.log('✅ Соединение восстановлено!');
+                this.reconnectAttempts = 0;
+            } catch (error) {
+                console.error('❌ Ошибка восстановления:', error);
+                this.attemptReconnect();
+            }
+        }, delay);
+    }
+
+    // === ДОБАВЬТЕ ЭТОТ МЕТОД В КЛАСС ===
+    async handleAutoStart() {
+        console.log('🎯 Запуск автостарта...');
+        
+        if (this._autoStartCalled && this._streamRestorationAttempted) {
+            console.log('⏸️ handleAutoStart уже был вызван');
+            return;
+        }
+        
         if (this.config?.stream?.auto_start && !this.isStreamActive) {
-            console.log('🚀 УСЛОВИЕ ВЫПОЛНЕНО! Запускаю автозапуск...');
+            console.log('🚀 Запускаю стрим...');
             
-            // Задержка 2 секунды для полной инициализации
-            setTimeout(async () => {
-                try {
-                    console.log('▶️ Запускаю стрим...');
-                    await this.startStream();
-                    console.log('✅ Автозапуск выполнен успешно!');
-                } catch (error) {
-                    console.error('❌ Ошибка автозапуска:', error);
-                }
-            }, 2000);
+            // Дополнительная задержка при обновлении
+            if (this.isPageRefresh && !this._streamRestorationAttempted) {
+                console.log('🔄 Обновление страницы, жду 3 секунды...');
+                await new Promise(resolve => setTimeout(resolve, 3000));
+                this._streamRestorationAttempted = true;
+            }
             
+            try {
+                await this.startStream();
+                console.log('✅ Автозапуск выполнен');
+            } catch (error) {
+                console.error('❌ Ошибка автостарта:', error);
+            }
         } else {
-            console.log('⏸️ Автозапуск не требуется:', {
-                reason: !this.config?.stream?.auto_start ? 'auto_start = false' : 'стрим уже активен',
+            console.log('⏸️ Автозапуск не требуется', {
                 auto_start: this.config?.stream?.auto_start,
                 isStreamActive: this.isStreamActive
             });
         }
-    } 
+    }
 
     // Временный метод для прямого запуска
     async directAutoStart() {
@@ -178,6 +379,9 @@ class StreamController {
             
             // Запускаем обновление статуса с интервалом
             this.startStatusUpdates();
+            
+            // Запускаем мониторинг UI
+            this.startUIMonitoring();
             
         } catch (error) {
             console.error('❌ Ошибка инициализации:', error);
@@ -298,130 +502,6 @@ class StreamController {
         
         console.log(`✅ Установлена камера: ${this.currentDevicePath}, тип: ${this.cameraType}`);
     }
-    
-    // renderCameraList(cameras) {
-    //     const container = document.getElementById('camera-list');
-    //     if (!container) return;
-        
-    //     if (!cameras || cameras.length === 0) {
-    //         container.innerHTML = '<div class="no-cameras">Камеры не найдены</div>';
-    //         return;
-    //     }
-        
-    //     console.log('📋 Рендеринг списка камер:', {
-    //         total: cameras.length,
-    //         currentDevice: this.currentDevicePath,
-    //         cameras: cameras.map(c => ({ 
-    //             path: c.device_path, 
-    //             name: c.name, 
-    //             type: c.type,
-    //             formats: c.formats 
-    //         }))
-    //     });
-        
-    //     // Группируем камеры по типу
-    //     const usbCameras = cameras.filter(c => {
-    //         const type = (c.type || '').toUpperCase();
-    //         return type === 'USB' || type === 'V4L2' || !type.includes('CSI');
-    //     });
-        
-    //     const csiCameras = cameras.filter(c => {
-    //         const type = (c.type || '').toUpperCase();
-    //         return type.includes('CSI') || type === 'MMAL';
-    //     });
-        
-    //     console.log('📊 Группы камер:', {
-    //         usb: usbCameras.length,
-    //         csi: csiCameras.length
-    //     });
-        
-    //     let html = '';
-        
-    //     // Показываем CSI камеры первыми
-    //     if (csiCameras.length > 0) {
-    //         html += '<div class="camera-group-title">CSI Камеры</div>';
-    //         csiCameras.forEach(camera => {
-    //             html += this.renderCameraCard(camera);
-    //         });
-    //     }
-        
-    //     // Потом USB камеры
-    //     if (usbCameras.length > 0) {
-    //         html += '<div class="camera-group-title">USB Камеры</div>';
-    //         usbCameras.forEach(camera => {
-    //             html += this.renderCameraCard(camera);
-    //         });
-    //     }
-        
-    //     // Если ни одной камеры не найдено
-    //     if (!html) {
-    //         html = '<div class="no-cameras-message">Камеры не найдены</div>';
-    //     }
-        
-    //     container.innerHTML = html;
-    // }
-
-    // Временно замените renderCameraList на это:
-    // renderCameraList(cameras) {
-    //     const container = document.getElementById('camera-list');
-    //     if (!container) return;
-        
-    //     if (!cameras || cameras.length === 0) {
-    //         container.innerHTML = '<div class="no-cameras">Камеры не найдены</div>';
-    //         return;
-    //     }
-        
-    //     // Выводим ВСЕ камеры без фильтрации
-    //     let html = '<div class="camera-group-title">Все камеры (отладка)</div>';
-    //     cameras.forEach(camera => {
-    //         html += `
-    //             <div style="background: rgba(255,255,255,0.1); padding: 10px; margin: 5px 0; border-radius: 5px;">
-    //                 Путь: ${camera.device_path}<br>
-    //                 Имя: ${camera.name || 'нет'}<br>
-    //                 Тип: ${camera.type || 'не указан'}<br>
-    //                 Форматы: ${camera.formats?.join(', ') || 'нет'}
-    //             </div>
-    //         `;
-    //     });
-        
-    //     container.innerHTML = html;
-    // }
-
-
-    // renderCameraList(cameras) {
-    //     const container = document.getElementById('camera-list');
-    //     if (!container) return;
-        
-    //     if (!cameras || cameras.length === 0) {
-    //         container.innerHTML = '<div class="no-cameras">Камеры не найдены</div>';
-    //         return;
-    //     }
-        
-    //     console.log('📋 ВСЕ камеры для отладки:', cameras);
-        
-    //     // Выводим ВСЕ камеры без фильтрации
-    //     let html = '<div class="camera-group-title">Все камеры (отладка)</div>';
-    //     cameras.forEach((camera, index) => {
-    //         const isSelected = camera.device_path === this.currentDevicePath;
-    //         html += `
-    //             <div style="
-    //                 background: ${isSelected ? 'rgba(72, 187, 120, 0.2)' : 'rgba(255,255,255,0.1)'}; 
-    //                 padding: 10px; 
-    //                 margin: 5px 0; 
-    //                 border-radius: 5px;
-    //                 border-left: 4px solid ${isSelected ? '#48bb78' : '#4a5568'};
-    //             ">
-    //                 <strong>${index + 1}. ${camera.device_path}</strong>
-    //                 ${isSelected ? ' <span style="color: #48bb78;">(Текущая)</span>' : ''}<br>
-    //                 Имя: ${camera.name || 'нет'}<br>
-    //                 Тип: "${camera.type || 'не указан'}"<br>
-    //                 Форматы: ${camera.formats?.join(', ') || 'нет'}
-    //             </div>
-    //         `;
-    //     });
-        
-    //     container.innerHTML = html;
-    // }    
 
     renderCameraList(cameras) {
         const container = document.getElementById('camera-list');
@@ -483,65 +563,6 @@ class StreamController {
         container.innerHTML = html;
     }
 
-    // renderCameraCard(camera) {
-    //     const isSelected = camera.device_path === this.currentDevicePath;
-        
-    //     // Определяем тип камеры
-    //     let cameraType = camera.type || 'USB';
-    //     const typeUpper = cameraType.toUpperCase();
-        
-    //     if (typeUpper.includes('CSI') || typeUpper === 'MMAL') {
-    //         cameraType = 'CSI';
-    //     } else if (typeUpper === 'USB' || typeUpper === 'V4L2' || !typeUpper.includes('CSI')) {
-    //         cameraType = 'USB';
-    //     }
-        
-    //     // Упрощаем название камеры
-    //     let cameraName = camera.name || camera.device_path;
-    //     cameraName = cameraName
-    //         .replace(/\(usb-[^)]+\)/g, '')
-    //         .replace(/\(046d:0825\)/g, '')
-    //         .replace(/:/g, '')
-    //         .trim();
-        
-    //     if (cameraName.length > 25) {
-    //         cameraName = cameraName.substring(0, 22) + '...';
-    //     }
-        
-    //     // Определяем иконку
-    //     const icon = cameraType === 'CSI' ? '📷' : '🔌';
-    //     const typeClass = cameraType.toLowerCase();
-        
-    //     // Безопасное создание HTML
-    //     const escapedName = this.escapeHtml(cameraName);
-    //     const escapedPath = this.escapeHtml(camera.device_path);
-    //     const escapedType = this.escapeHtml(cameraType);
-        
-    //     return `
-    //         <div class="camera-card ${isSelected ? 'selected' : ''}" 
-    //             data-device-path="${escapedPath}"
-    //             onclick="handleCameraChange('${escapedPath.replace(/'/g, "\\'")}')"
-    //             title="${escapedName} (${escapedType}) - ${escapedPath}">
-    //             <div class="camera-selector">
-    //                 <div class="selection-square ${isSelected ? 'selected' : ''}">
-    //                     ${isSelected ? '✓' : ''}
-    //                 </div>
-    //                 <div class="camera-info">
-    //                     <div class="camera-header">
-    //                         <span class="camera-icon">${icon}</span>
-    //                         <span class="camera-name">${escapedName}</span>
-    //                         <span class="camera-type-badge ${typeClass}">
-    //                             ${escapedType}
-    //                         </span>
-    //                         ${isSelected ? '<span class="current-badge">Текущая</span>' : ''}
-    //                     </div>
-    //                     <div class="camera-path">${escapedPath}</div>
-    //                 </div>
-    //             </div>
-    //         </div>
-    //     `;
-    // }
-
     renderCameraCard(camera) {
         const isSelected = camera.device_path === this.currentDevicePath;
         
@@ -575,8 +596,6 @@ class StreamController {
         
         // Если это V4L2 камера и есть имя - используем его
         if (cameraName.startsWith('/dev/video')) {
-            // Можно добавить логику для красивых имен
-            // Например: "Logitech Webcam (/dev/video4)"
             cameraName = `Камера ${camera.device_path}`;
         }
         
@@ -727,23 +746,92 @@ class StreamController {
     async startStream() {
         try {
             console.log('▶️ Запуск стрима...');
-            const response = await fetch('/api/stream/start', { method: 'POST' });
+            
+            // Проверяем видео элемент
+            if (!this.checkVideoElement()) {
+                console.error('❌ Не могу запустить стрим: видео элемент не корректен');
+                this.showToast('Ошибка видео элемента', 'error');
+                return;
+            }
+            
+            // Сбрасываем счетчик ошибок
+            window.videoErrorCount = 0;
+            
+            const response = await fetch('/api/stream/start', { 
+                method: 'POST',
+                headers: {
+                    'Cache-Control': 'no-cache',
+                    'Pragma': 'no-cache'
+                }
+            });
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.log('🔍 Ошибка запуска:', response.status, errorText);
+                
+                // Если "too many streams" - ждем и пробуем снова
+                if (response.status === 429 || errorText.includes('too many') || errorText.includes('уже имеет')) {
+                    console.log('⏳ Обнаружено "too many streams", жду 3 секунды и пробую снова...');
+                    await new Promise(resolve => setTimeout(resolve, 3000));
+                    
+                    console.log('🔄 Вторая попытка запуска...');
+                    const retryResponse = await fetch('/api/stream/start', { 
+                        method: 'POST' 
+                    });
+                    
+                    if (retryResponse.ok) {
+                        const retryData = await retryResponse.json();
+                        if (retryData.status === 'started' || retryData.status === 'already_running') {
+                            this.updateUI(true);
+                            console.log('✅ Стрим запущен со второй попытки');
+                            
+                            // Загружаем видео через 1 секунду
+                            setTimeout(() => {
+                                this.refreshVideo();
+                            }, 1000);
+                            
+                            this.showToast('Стрим запущен', 'success');
+                            return;
+                        }
+                    }
+                }
+                
+                throw new Error(`HTTP ${response.status}: ${errorText}`);
+            }
+            
             const data = await response.json();
             
             if (data.status === 'started' || data.status === 'already_running') {
                 this.updateUI(true);
-                this.refreshVideo();
-                console.log('✅ Стрим запущен');
+                console.log('✅ Стрим запущен на сервере');
+                
+                // Даем время серверу начать генерировать кадры
+                setTimeout(() => {
+                    console.log('🔄 Загружаю видео поток...');
+                    this.refreshVideo();
+                    
+                    // Вторая попытка через 2 секунды
+                    setTimeout(() => {
+                        if (this.videoElement && (!this.videoElement.src || this.videoElement.src === '')) {
+                            console.log('⚠️ Видео не загрузилось, повторная попытка...');
+                            this.refreshVideo();
+                        }
+                    }, 2000);
+                }, 1000);
+                
+                this.showToast('Стрим запущен', 'success');
+                
             } else {
                 console.error('❌ Ошибка запуска:', data.message);
-                alert('Ошибка запуска стрима: ' + data.message);
+                this.showToast(`Ошибка: ${data.message}`, 'error');
             }
+            
         } catch (error) {
             console.error('❌ Ошибка запуска стрима:', error);
-            alert('Ошибка запуска стрима: ' + error.message);
+            this.showToast('Ошибка подключения к серверу', 'error');
         }
     }
-    
+
     async stopStream() {
         try {
             console.log('⏹️ Остановка стрима...');
@@ -753,13 +841,14 @@ class StreamController {
             if (data.status === 'stopped' || data.status === 'already_stopped') {
                 this.updateUI(false);
                 console.log('✅ Стрим остановлен');
+                this.showToast('Стрим остановлен', 'info');
             } else {
                 console.error('❌ Ошибка остановки:', data.message);
-                alert('Ошибка остановки стрима: ' + data.message);
+                this.showToast(`Ошибка: ${data.message}`, 'error');
             }
         } catch (error) {
             console.error('❌ Ошибка остановки стрима:', error);
-            alert('Ошибка остановки стрима: ' + error.message);
+            this.showToast('Ошибка остановки стрима', 'error');
         }
     }
     
@@ -842,8 +931,20 @@ class StreamController {
         const stopBtn = document.getElementById('stop-btn');
         const statusEl = document.getElementById('stream-status');
         
-        if (startBtn) startBtn.disabled = isActive;
-        if (stopBtn) stopBtn.disabled = !isActive;
+        // Устанавливаем состояние кнопок
+        if (startBtn) {
+            startBtn.disabled = isActive;
+            startBtn.classList.toggle('disabled', isActive);
+            startBtn.style.opacity = isActive ? '0.5' : '1';
+            startBtn.style.pointerEvents = isActive ? 'none' : 'auto';
+        }
+        
+        if (stopBtn) {
+            stopBtn.disabled = !isActive;
+            stopBtn.classList.toggle('disabled', !isActive);
+            stopBtn.style.opacity = !isActive ? '0.5' : '1';
+            stopBtn.style.pointerEvents = !isActive ? 'none' : 'auto';
+        }
         
         if (statusEl) {
             if (isActive) {
@@ -852,6 +953,9 @@ class StreamController {
                 statusEl.innerHTML = '<span class="status-indicator inactive"></span><strong>Остановлен</strong>';
             }
         }
+        
+        // Активно обновляем другие элементы
+        this.activateUIElements();
     }
     
     updateStatusInfo(data) {
@@ -875,16 +979,52 @@ class StreamController {
     }
     
     refreshVideo() {
-        if (this.videoElement) {
-            const src = this.videoElement.src;
+        if (!this.checkVideoElement()) {
+            return;
+        }
+        
+        const newSrc = '/video_feed?nocache=' + Date.now();
+        console.log(`🔄 Обновление ${this.videoElement.tagName}...`);
+        
+        // Для IMG просто меняем src
+        if (this.videoElement.tagName === 'IMG') {
+            // Сохраняем обработчики
+            const oldOnLoad = this.videoElement.onload;
+            const oldOnError = this.videoElement.onerror;
+            
+            // Устанавливаем новый src
+            this.videoElement.src = newSrc;
+            console.log('✅ Обновлен IMG src');
+            
+            // Восстанавливаем обработчики
+            this.videoElement.onload = oldOnLoad;
+            this.videoElement.onerror = oldOnError;
+            
+        } else if (this.videoElement.tagName === 'VIDEO') {
+            // Для VIDEO более сложная логика
+            if (!this.videoElement.paused) {
+                this.videoElement.pause();
+            }
+            
+            const oldOnLoad = this.videoElement.onloadeddata;
+            const oldOnError = this.videoElement.onerror;
+            
             this.videoElement.src = '';
+            
             setTimeout(() => {
-                this.videoElement.src = src + '?t=' + Date.now();
-                console.log('🔄 Видео обновлено');
+                this.videoElement.onloadeddata = oldOnLoad;
+                this.videoElement.onerror = oldOnError;
+                this.videoElement.src = newSrc;
+                console.log('✅ Обновлен VIDEO src');
+                
+                this.videoElement.load();
+                this.videoElement.play().catch(e => {
+                    console.log('⚠️ Автовоспроизведение:', e.name);
+                });
             }, 100);
         }
     }
-    
+        
     startStatusUpdates() {
         // Останавливаем предыдущий интервал, если есть
         if (this.statusInterval) {
@@ -904,6 +1044,46 @@ class StreamController {
         console.log('🔄 Запущено автоматическое обновление');
     }
     
+    // Показать уведомление
+    showToast(message, type = 'info') {
+        const colors = {
+            success: '#48bb78',
+            error: '#e53e3e',
+            info: '#4299e1',
+            warning: '#ed8936'
+        };
+        
+        const toast = document.createElement('div');
+        toast.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: ${colors[type] || colors.info};
+            color: white;
+            padding: 12px 20px;
+            border-radius: 6px;
+            z-index: 10000;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            animation: slideIn 0.3s ease;
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 300px;
+            word-wrap: break-word;
+        `;
+        
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        
+        // Автоматическое скрытие через 4 секунды
+        setTimeout(() => {
+            toast.style.animation = 'slideOut 0.3s ease';
+            setTimeout(() => {
+                if (toast.parentNode) {
+                    document.body.removeChild(toast);
+                }
+            }, 300);
+        }, 4000);
+    }
+    
     destroy() {
         console.log('🧹 Очистка StreamController...');
         
@@ -916,6 +1096,16 @@ class StreamController {
         if (this.videoRefreshTimer) {
             clearTimeout(this.videoRefreshTimer);
             this.videoRefreshTimer = null;
+        }
+        
+        if (this.uiMonitorInterval) {
+            clearInterval(this.uiMonitorInterval);
+            this.uiMonitorInterval = null;
+        }
+        
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
         }
         
         // Сбрасываем флаги
@@ -932,8 +1122,48 @@ class StreamController {
 // Глобальный экземпляр контроллера
 let streamController = window.streamController || window.__streamControllerInstance || null;
 
+// Функция для принудительного восстановления
+function restoreStreamAfterRefresh() {
+    console.log('🔄 Восстановление после обновления страницы...');
+    
+    setTimeout(() => {
+        if (window.streamController && !window.streamController.isStreamActive) {
+            console.log('🚀 Принудительный запуск стрима после обновления...');
+            window.streamController.startStream().catch(err => {
+                console.error('❌ Не удалось восстановить стрим:', err);
+            });
+        }
+        
+        // Активируем все элементы
+        document.querySelectorAll('button, select, input').forEach(el => {
+            el.disabled = false;
+            el.style.pointerEvents = 'auto';
+            el.style.opacity = '1';
+        });
+    }, 3000);
+}
+
 // Инициализация после полной загрузки страницы
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('📄 DOM загружен');
+    
+    // Добавляем CSS анимации для уведомлений
+    if (!document.getElementById('toast-styles')) {
+        const style = document.createElement('style');
+        style.id = 'toast-styles';
+        style.textContent = `
+            @keyframes slideIn {
+                from { transform: translateX(100%); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+            @keyframes slideOut {
+                from { transform: translateX(0); opacity: 1; }
+                to { transform: translateX(100%); opacity: 0; }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+    
     // Небольшая задержка для полной загрузки стилей
     setTimeout(() => {
         if (!window.streamController && !window.__streamControllerInstance) {
@@ -942,6 +1172,9 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             console.log('ℹ️ StreamController уже инициализирован');
         }
+        
+        // Вызываем восстановление
+        restoreStreamAfterRefresh();
     }, 500);
 });
 
@@ -986,22 +1219,16 @@ async function selectCamera(devicePath) {
         
         if (data.status === 'success') {
             console.log(`✅ Камера изменена на ${devicePath}`);
-            // БЕЗ ALERT: streamController?.loadCameras();
-            // БЕЗ ALERT: streamController?.checkStatus();
             
             // Используем handleCameraChange для обновления интерфейса
             handleCameraChange(devicePath);
         } else {
             console.error('❌ Ошибка выбора камеры:', data.message);
-            // Можно оставить alert для ошибок или убрать
-            // alert('❌ Ошибка: ' + data.message);
         }
     } catch (error) {
         console.error('❌ Ошибка выбора камеры:', error);
-        // alert('❌ Ошибка выбора камеры: ' + error.message);
     }
 }
-
 
 // Обработка выбора камеры
 async function handleCameraChange(devicePath) {
@@ -1042,12 +1269,16 @@ async function handleCameraChange(devicePath) {
                     streamController.refreshVideo();
                 }, 1000);
             }
+            
+            streamController.showToast('Камера изменена', 'success');
         } else {
             console.error('❌ Ошибка смены камеры:', data.message);
+            streamController.showToast(`Ошибка: ${data.message}`, 'error');
         }
         
     } catch (error) {
         console.error('❌ Ошибка смены камеры:', error);
+        streamController.showToast('Ошибка смены камеры', 'error');
     }
 }
 
@@ -1089,7 +1320,6 @@ function showAllCameras() {
 }
 
 // Обработка загрузки видео
-// Обработчики видео
 function onVideoLoad() {
     console.log('✅ Видео загружено');
     const placeholder = document.getElementById('video-placeholder');
@@ -1100,7 +1330,25 @@ function onVideoError() {
     console.log('❌ Ошибка загрузки видео');
     const placeholder = document.getElementById('video-placeholder');
     if (placeholder) placeholder.style.display = 'flex';
+    
+    // Пытаемся обновить видео при ошибке
+    if (streamController && streamController.isStreamActive) {
+        setTimeout(() => {
+            streamController.refreshVideo();
+        }, 2000);
+    }
 }
+
+// Глобальная функция для принудительного восстановления
+window.forceStreamRestore = function() {
+    console.log('🚨 Ручное восстановление стрима');
+    if (streamController) {
+        streamController.startStream().catch(err => {
+            console.error('❌ Ошибка восстановления:', err);
+            alert('Не удалось восстановить стрим: ' + err.message);
+        });
+    }
+};
 
 // Очистка при закрытии страницы
 window.addEventListener('beforeunload', () => {
@@ -1109,3 +1357,137 @@ window.addEventListener('beforeunload', () => {
     }
 });
 
+// Принудительная активация при загрузке
+window.addEventListener('load', () => {
+    console.log('🌐 Страница полностью загружена');
+    
+    // Дополнительная проверка через 5 секунд
+    setTimeout(() => {
+        if (streamController && !streamController.isStreamActive) {
+            console.log('⚠️ Стрим все еще не активен, проверяем...');
+            streamController.checkStatus();
+        }
+    }, 5000);
+});
+
+// Глобальный экспорт для отладки
+window.StreamController = StreamController;
+
+
+// Глобальная функция для ручного восстановления
+window.fixStreamIssue = async function() {
+    console.log('🔧 Ручное исправление проблемы со стримом');
+    
+    if (!window.streamController) {
+        alert('StreamController не инициализирован');
+        return;
+    }
+    
+    try {
+        // 1. Показываем статус
+        alert('Начинаю исправление проблемы "Too many streams"...');
+        
+        // 2. Сбрасываем соединения
+        const resetResponse = await fetch('/api/stream/reset', { 
+            method: 'POST' 
+        });
+        const resetData = await resetResponse.json();
+        console.log('Сброс:', resetData);
+        
+        // 3. Ждем
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        
+        // 4. Запускаем стрим
+        await window.streamController.startStream();
+        
+        alert('✅ Проблема исправлена! Стрим должен работать.');
+    } catch (error) {
+        console.error('Ошибка:', error);
+        alert('❌ Ошибка: ' + error.message);
+    }
+};
+
+// Проверка при загрузке страницы
+window.addEventListener('load', function() {
+    console.log('🌐 Страница полностью загружена');
+    
+    // Проверяем, есть ли видео элемент
+    const video = document.getElementById('video-stream');
+    if (video) {
+        console.log('🎬 Видео элемент найден:', {
+            autoplay: video.autoplay,
+            muted: video.muted,
+            playsinline: video.playsinline,
+            src: video.src
+        });
+    }
+    
+    // Через 5 секунд проверяем состояние
+    setTimeout(() => {
+        if (window.streamController && !window.streamController.isStreamActive) {
+            console.log('⚠️ Стрим все еще не активен, проверяю статус...');
+            window.streamController.checkStatus();
+        }
+    }, 5000);
+});
+
+// Добавьте кнопку в HTML для тестирования:
+// <button onclick="fixStreamIssue()" style="position:fixed;bottom:20px;right:20px;z-index:10000;padding:10px;background:#e53e3e;color:white;border:none;border-radius:5px;cursor:pointer;">
+//     🔧 Исправить стрим
+// </button>
+
+
+// В конце app.js добавьте:
+window.forceCleanup = async function() {
+    console.log('🧹 Принудительная очистка соединений...');
+    
+    try {
+        // Показываем уведомление
+        const notification = document.createElement('div');
+        notification.innerHTML = `
+            <div style="
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: #4299e1;
+                color: white;
+                padding: 20px;
+                border-radius: 8px;
+                z-index: 10000;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            ">
+                <div>🧹 Очищаю соединения...</div>
+            </div>
+        `;
+        document.body.appendChild(notification);
+        
+        // Ждем 3 секунды (даем время серверу на очистку)
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        
+        // Перезагружаем страницу
+        window.location.reload();
+        
+    } catch (error) {
+        console.error('❌ Ошибка очистки:', error);
+        alert('Ошибка: ' + error.message);
+    }
+};
+
+// Добавьте кнопку в HTML для тестирования:
+/*
+<button onclick="forceCleanup()" style="
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    z-index: 1000;
+    padding: 10px 15px;
+    background: #e53e3e;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+">
+    🧹 Очистить соединения
+</button>
+*/

@@ -328,7 +328,9 @@ class CameraStreamer:
         
         # Словарь для отслеживания активных соединений
         self.active_clients = {}
-        self.MAX_STREAMS_PER_CLIENT = 1
+        self.MAX_STREAMS_PER_CLIENT = 5
+
+        self.client_timestamps = {}
         
         # Определяем путь к шаблонам
         templates_folder = config.get('paths', {}).get('templates_folder', 'templates')
@@ -512,23 +514,63 @@ class CameraStreamer:
                 time.sleep(0.1)
     
     def get_fallback_image(self):
-        """Возвращает статичное изображение при перегрузке"""
-        # Создаем простое изображение
-        img = np.zeros((480, 640, 3), dtype=np.uint8)
-        img[:] = (40, 40, 40)  # Серый фон
+        """Возвращает статичное изображение при перегрузке или ошибке"""
+        try:
+            # Создаем информативное изображение
+            img = np.zeros((480, 640, 3), dtype=np.uint8)
+            img[:] = (30, 30, 40)  # Темно-синий фон
+            
+            # Добавляем текст
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            font_scale = 1.2
+            thickness = 2
+            
+            # Заголовок
+            cv2.putText(img, 'STREAM LIMIT REACHED', 
+                    (120, 150), font, font_scale, 
+                    (255, 100, 100), thickness)
+            
+            # Сообщение
+            cv2.putText(img, 'Please wait a moment', 
+                    (160, 220), font, 0.8, 
+                    (200, 200, 255), thickness)
+            
+            cv2.putText(img, 'and refresh the page', 
+                    (180, 260), font, 0.8, 
+                    (200, 200, 255), thickness)
+            
+            # Информация
+            with self.stream_lock:
+                active_streams = self.active_streams
+                max_streams = self.MAX_CONCURRENT_STREAMS
+                
+            cv2.putText(img, f'Active: {active_streams}/{max_streams}', 
+                    (200, 320), font, 0.7, 
+                    (150, 255, 150), thickness)
+            
+            # Таймер (текущее время)
+            current_time = time.strftime("%H:%M:%S")
+            cv2.putText(img, f'Time: {current_time}', 
+                    (220, 360), font, 0.6, 
+                    (200, 200, 200), 1)
+            
+            ret, buffer = cv2.imencode('.jpg', img, 
+                                    [cv2.IMWRITE_JPEG_QUALITY, 85])
+            
+            if ret:
+                frame_bytes = buffer.tobytes()
+                return (b'--frame\r\n'
+                        b'Content-Type: image/jpeg\r\n\r\n' + 
+                        frame_bytes + b'\r\n')
+                
+        except Exception as e:
+            print(f"❌ Ошибка создания fallback изображения: {e}")
         
-        # Добавляем текст
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        cv2.putText(img, 'Too many streams', (150, 200), font, 1, (255, 255, 255), 2)
-        cv2.putText(img, 'Please try again later', (120, 250), font, 0.7, (200, 200, 200), 2)
-        
-        ret, buffer = cv2.imencode('.jpg', img)
-        frame_bytes = buffer.tobytes()
-        
-        return Response(
-            b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n',
-            mimetype='multipart/x-mixed-replace; boundary=frame'
-        )
+        # Fallback: простой текст если изображение не создалось
+        error_text = b'Stream unavailable - too many connections'
+        return (b'--frame\r\n'
+                b'Content-Type: text/plain\r\n\r\n' + 
+                error_text + b'\r\n')
     
     def start_stream_internal(self):
         """Внутренний запуск стрима"""
@@ -649,26 +691,154 @@ class CameraStreamer:
             """Маршрут для видео потока с ограничением"""
             # Получаем IP клиента
             client_ip = request.remote_addr if hasattr(request, 'remote_addr') else 'unknown'
-            client_id = f"{client_ip}_{request.args.get('t', str(time.time()))}"
+            
+            # ОТЛАДКА: логируем заголовки
+            user_agent = request.headers.get('User-Agent', 'unknown')
+            referer = request.headers.get('Referer', '')
+            
+            print(f"📡 Запрос video_feed от {client_ip}")
+            print(f"   User-Agent: {user_agent[:50]}...")
+            print(f"   Referer: {referer[:50]}..." if referer else "   Referer: нет")
             
             with self.stream_lock:
+                # ИНИЦИАЛИЗАЦИЯ client_timestamps если не существует
+                if not hasattr(self, 'client_timestamps'):
+                    self.client_timestamps = {}
+                    print("📌 Инициализирован client_timestamps")
+                
+                current_time = time.time()
+                
+                # ОЧИСТКА СТАРЫХ СОЕДИНЕНИЙ (5 секунд вместо 30)
+                expired_ips = []
+                for ip, timestamp in list(self.client_timestamps.items()):
+                    if current_time - timestamp > 5:  # Уменьшено до 5 секунд!
+                        expired_ips.append(ip)
+                
+                cleaned_count = 0
+                for ip in expired_ips:
+                    if ip in self.active_clients:
+                        old_count = self.active_clients[ip]
+                        self.active_streams = max(0, self.active_streams - old_count)
+                        cleaned_count += old_count
+                        print(f"🧹 Очистка устаревшего соединения {ip} (было {old_count} стримов)")
+                        del self.active_clients[ip]
+                        if ip in self.client_timestamps:
+                            del self.client_timestamps[ip]
+                
+                if cleaned_count > 0:
+                    print(f"🧹 Всего очищено: {cleaned_count} стримов")
+                
+                # ОСОБАЯ ОБРАБОТКА ПРИ ОБНОВЛЕНИИ СТРАНИЦЫ
+                # Если это похоже на обновление страницы (есть Referer с того же хоста)
+                is_page_refresh = False
+                if referer and ('127.0.0.1' in referer or 'localhost' in referer):
+                    is_page_refresh = True
+                
+                if is_page_refresh and client_ip in self.active_clients:
+                    print(f"🔄 Обнаружено обновление страницы для {client_ip}")
+                    old_count = self.active_clients.get(client_ip, 0)
+                    if old_count > 0:
+                        print(f"   Очищаю {old_count} старых соединений...")
+                        self.active_streams = max(0, self.active_streams - old_count)
+                        self.active_clients[client_ip] = 0  # Сбрасываем счетчик, но не удаляем
+                
                 # Проверяем лимит для конкретного клиента
                 client_streams = self.active_clients.get(client_ip, 0)
+                
+                print(f"📊 Проверка лимитов для {client_ip}:")
+                print(f"   • Стримов у клиента: {client_streams}/{self.MAX_STREAMS_PER_CLIENT}")
+                print(f"   • Всего стримов: {self.active_streams}/{self.MAX_CONCURRENT_STREAMS}")
+                
                 if client_streams >= self.MAX_STREAMS_PER_CLIENT:
-                    print(f"⚠️  Клиент {client_ip} уже имеет активный стрим")
+                    print(f"⚠️  ОТКАЗ: Клиент {client_ip} уже имеет {client_streams} активных стрима")
+                    print(f"   (лимит: {self.MAX_STREAMS_PER_CLIENT} стримов на клиента)")
                     return self.get_fallback_image()
                 
                 # Проверяем общий лимит
                 if self.active_streams >= self.MAX_CONCURRENT_STREAMS:
-                    print(f"⚠️  Превышено общее количество стримов: {self.active_streams}/{self.MAX_CONCURRENT_STREAMS}")
+                    print(f"⚠️  ОТКАЗ: Превышено общее количество стримов: {self.active_streams}/{self.MAX_CONCURRENT_STREAMS}")
                     return self.get_fallback_image()
                 
-                # Увеличиваем счетчики
+                # Увеличиваем счетчики и обновляем время
                 self.active_streams += 1
                 self.active_clients[client_ip] = client_streams + 1
+                self.client_timestamps[client_ip] = current_time  # Обновляем время
                 
-                print(f"📹 Клиент {client_ip} запросил video_feed (клиентских: {client_streams+1}, всего: {self.active_streams})")
+                print(f"✅ Разрешено: Клиент {client_ip}")
+                print(f"   • Было стримов у клиента: {client_streams}")
+                print(f"   • Стало: {client_streams + 1}")
+                print(f"   • Всего активных стримов: {self.active_streams}")
             
+            def generate_with_cleanup():
+                try:
+                    print(f"🎬 Начало генерации видео для {client_ip}")
+                    frame_count = 0
+                    
+                    for chunk in self.generate_from_buffer():
+                        frame_count += 1
+                        if frame_count % 30 == 0:  # Логируем каждые 30 кадров
+                            print(f"📹 {client_ip}: отправлено {frame_count} кадров")
+                        yield chunk
+                        
+                except GeneratorExit:
+                    print(f"📹 Клиент {client_ip} отключился (GeneratorExit)")
+                except Exception as e:
+                    print(f"📹 Ошибка генерации для {client_ip}: {str(e)[:100]}")
+                finally:
+                    with self.stream_lock:
+                        # Уменьшаем счетчики
+                        if self.active_streams > 0:
+                            self.active_streams -= 1
+                        
+                        client_streams = self.active_clients.get(client_ip, 0)
+                        if client_streams > 0:
+                            self.active_clients[client_ip] = client_streams - 1
+                            if self.active_clients[client_ip] <= 0:
+                                # Удаляем только если счетчик достиг 0
+                                if client_ip in self.active_clients:
+                                    del self.active_clients[client_ip]
+                                if client_ip in self.client_timestamps:
+                                    del self.client_timestamps[client_ip]
+                        
+                        print(f"📹 Стрим завершен для {client_ip}")
+                        print(f"   • Осталось стримов у клиента: {self.active_clients.get(client_ip, 0)}")
+                        print(f"   • Всего активных стримов: {self.active_streams}")
+            
+            return Response(generate_with_cleanup(),
+                            mimetype='multipart/x-mixed-replace; boundary=frame')
+
+        @self.app.route('/api/stream/cleanup', methods=['POST'])
+        def cleanup_streams():
+            """Ручная очистка старых соединений"""
+            with self.stream_lock:
+                cleaned_count = 0
+                current_time = time.time()
+                
+                # Находим устаревшие соединения
+                expired_ips = []
+                for ip, timestamp in list(self.client_timestamps.items()):
+                    if current_time - timestamp > 10:  # 10 секунд
+                        expired_ips.append(ip)
+                
+                # Очищаем
+                for ip in expired_ips:
+                    if ip in self.active_clients:
+                        old_count = self.active_clients[ip]
+                        self.active_streams = max(0, self.active_streams - old_count)
+                        cleaned_count += old_count
+                        
+                        del self.active_clients[ip]
+                        del self.client_timestamps[ip]
+                        
+                        print(f"🧹 Ручная очистка: {ip} ({old_count} стримов)")
+            
+            return {
+                'status': 'success',
+                'cleaned_count': cleaned_count,
+                'active_streams': self.active_streams,
+                'active_clients': len(self.active_clients)
+            }       
+
             def generate_with_cleanup():
                 try:
                     for chunk in self.generate_from_buffer():
@@ -694,6 +864,51 @@ class CameraStreamer:
             return Response(generate_with_cleanup(),
                             mimetype='multipart/x-mixed-replace; boundary=frame')
             
+        @self.app.route('/api/stream/reset', methods=['POST'])
+        def reset_streams():
+            """Аварийный сброс всех соединений"""
+            with self.stream_lock:
+                total_streams = self.active_streams
+                total_clients = len(self.active_clients)
+                
+                self.active_streams = 0
+                self.active_clients.clear()
+                self.client_timestamps.clear()
+                
+                print(f"🚨 АВАРИЙНЫЙ СБРОС: очищено {total_streams} стримов от {total_clients} клиентов")
+            
+            return {
+                'status': 'reset',
+                'reset_streams': total_streams,
+                'reset_clients': total_clients
+            }
+
+        @self.app.route('/api/stream/connections')
+        def get_connections():
+            """Получить информацию о текущих соединениях"""
+            with self.stream_lock:
+                clients_info = []
+                current_time = time.time()
+                
+                for ip, count in self.active_clients.items():
+                    last_active = self.client_timestamps.get(ip, 0)
+                    age = current_time - last_active if last_active > 0 else 0
+                    
+                    clients_info.append({
+                        'ip': ip,
+                        'stream_count': count,
+                        'last_active': round(age, 1),
+                        'is_expired': age > 30
+                    })
+            
+            return {
+                'active_streams': self.active_streams,
+                'active_clients': len(self.active_clients),
+                'clients': clients_info,
+                'max_concurrent': self.MAX_CONCURRENT_STREAMS,
+                'max_per_client': self.MAX_STREAMS_PER_CLIENT
+            }            
+
         @self.app.route('/api/stream/start', methods=['POST'])
         def start_stream():
             """Запуск видеопотока"""
