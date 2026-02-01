@@ -16,7 +16,7 @@ from datetime import datetime
 class StreamLogger:
     """Класс для логирования событий Flask веб-сервера"""
     
-    def __init__(self, config_path: str = 'config.yaml', log_dir: str = '002_logs'):
+    def __init__(self, config_path: str = 'config_rpi.yaml', log_dir: str = '002_logs'):
         """
         Инициализация логгера
         
@@ -269,6 +269,6 @@ class StreamLogger:
                 if key not in ['password', 'token', 'secret']:  # Не логируем чувствительные данные
                     self.logger.debug(f"   📋 {key}: {value}")
     
-def create_logger(config_path: str = 'config.yaml', log_dir: str = '002_logs') -> StreamLogger:
+def create_logger(config_path: str = 'config_rpi.yaml', log_dir: str = '002_logs') -> StreamLogger:
     """Создание экземпляра логгера"""
     return StreamLogger(config_path, log_dir)

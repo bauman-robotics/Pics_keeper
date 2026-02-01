@@ -1,3 +1,5 @@
+/* style.css */
+
 /* Основные переменные цветов */
 :root {
     --primary-color: #4b6cb7;
@@ -179,4 +181,181 @@ body {
     background: #38a169;
     color: #f0fff4;
     box-shadow: 0 0 10px rgba(72, 187, 120, 0.5);
+}
+
+/* Стили для типов камер */
+.camera-type-badge {
+    background: linear-gradient(135deg, #8a2be2, #9370db);
+    color: white;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 0.7em;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-left: 5px;
+}
+
+.camera-type-badge.usb {
+    background: linear-gradient(135deg, #2196F3, #21CBF3);
+}
+
+.camera-type-badge.csi {
+    background: linear-gradient(135deg, #8a2be2, #9370db);
+}
+
+
+
+
+/* Группировка камер */
+.camera-group-title {
+    font-weight: bold;
+    color: #a0aec0;
+    font-size: 0.9em;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 10px 0 5px 0;
+    padding-bottom: 3px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.camera-group-title:first-child {
+    margin-top: 5px;
+}
+
+.camera-icon {
+    margin-right: 8px;
+    font-size: 1.2em;
+}
+
+/* Сообщение об отсутствии камер */
+.no-cameras-message {
+    text-align: center;
+    padding: 30px 20px;
+    color: #a0aec0;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    border: 1px dashed rgba(255, 255, 255, 0.1);
+}
+
+.no-cameras-message .message-icon {
+    font-size: 2.5em;
+    margin-bottom: 15px;
+    opacity: 0.5;
+}
+
+.no-cameras-message .message-text {
+    font-size: 1.1em;
+    margin-bottom: 10px;
+    color: #e2e8f0;
+}
+
+.no-cameras-message .message-hint {
+    font-size: 0.9em;
+    color: #a0aec0;
+    margin-top: 15px;
+}
+
+.no-cameras-message code {
+    background: rgba(0, 0, 0, 0.3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: monospace;
+    margin: 5px 0;
+    display: inline-block;
+}
+
+/* Улучшаем отображение типов камер */
+.camera-type-badge {
+    background: linear-gradient(135deg, #8a2be2, #9370db);
+    color: white;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 0.7em;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-left: 8px;
+}
+
+.camera-type-badge.csi {
+    background: linear-gradient(135deg, #8a2be2, #9370db);
+}
+
+.camera-type-badge.usb {
+    background: linear-gradient(135deg, #2196F3, #21CBF3);
+}
+
+
+/* Стили для ошибок и уведомлений */
+.error-message {
+    background: rgba(229, 62, 62, 0.1);
+    border: 1px solid #e53e3e;
+    border-radius: 6px;
+    padding: 15px;
+    text-align: center;
+    color: #e53e3e;
+    margin: 10px 0;
+}
+
+.success-message {
+    background: rgba(72, 187, 120, 0.1);
+    border: 1px solid #48bb78;
+    border-radius: 6px;
+    padding: 15px;
+    text-align: center;
+    color: #48bb78;
+    margin: 10px 0;
+}
+
+/* Стили для загрузки */
+.loading-spinner {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    border-top-color: #fff;
+    animation: spin 1s ease-in-out infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Стили для карточки камеры */
+.camera-icon {
+    margin-right: 8px;
+    font-size: 1.2em;
+}
+
+.camera-type-badge {
+    background: linear-gradient(135deg, #8a2be2, #9370db);
+    color: white;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.7em;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-left: 8px;
+}
+
+.camera-type-badge.csi {
+    background: linear-gradient(135deg, #8a2be2, #9370db);
+}
+
+.camera-type-badge.usb {
+    background: linear-gradient(135deg, #2196F3, #21CBF3);
+}
+
+.camera-group-title {
+    font-weight: bold;
+    color: #a0aec0;
+    font-size: 0.9em;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 15px 0 8px 0;
+    padding-bottom: 5px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }

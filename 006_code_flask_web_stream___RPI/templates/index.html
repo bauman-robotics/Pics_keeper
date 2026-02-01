@@ -1,3 +1,4 @@
+<!-- index.html -->
 {% extends "base.html" %}
 
 {% block content %}
@@ -269,11 +270,21 @@ body {
     font-size: 1.1em;
 }
 
+/* .camera-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 300px;
+    overflow-y: auto;
+    padding-right: 5px;
+    margin-bottom: 10px;
+} */
+
 .camera-list {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    max-height: 200px;
+    max-height: 60vh; /* 60% от высоты окна */
     overflow-y: auto;
     padding-right: 5px;
     margin-bottom: 10px;
@@ -293,45 +304,54 @@ body {
     border-radius: 3px;
 }
 
-/* Радиокнопка */
-.camera-radio {
+/* Карточка камеры */
+.camera-card {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    padding: 10px;
+    transition: all 0.2s;
+    cursor: pointer;
+}
+
+.camera-card.selected {
+    background: rgba(72, 187, 120, 0.15);
+    border-color: #48bb78;
+}
+
+.camera-card:hover {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.camera-selector {
     display: flex;
     align-items: center;
-    gap: 10px;
-    cursor: pointer;
+    gap: 12px;
     width: 100%;
 }
 
-.camera-radio input[type="radio"] {
-    appearance: none;
-    width: 18px;
-    height: 18px;
+.selection-square {
+    width: 20px;
+    height: 20px;
     border: 2px solid #718096;
-    border-radius: 50%;
+    border-radius: 4px;
     background: transparent;
-    cursor: pointer;
-    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: transparent;
+    font-size: 12px;
+    font-weight: bold;
     flex-shrink: 0;
+    transition: all 0.2s ease;
 }
 
-.camera-radio input[type="radio"]:checked {
+.selection-square.selected {
     border-color: #48bb78;
     background: #48bb78;
-}
-
-.camera-radio input[type="radio"]:checked::after {
-    content: '';
-    position: absolute;
-    top: 4px;
-    left: 4px;
-    width: 6px;
-    height: 6px;
-    background: white;
-    border-radius: 50%;
-}
-
-.camera-radio input[type="radio"]:hover {
-    border-color: #a0aec0;
+    color: white;
+    box-shadow: 0 0 8px rgba(72, 187, 120, 0.4);
 }
 
 .camera-info {
@@ -363,22 +383,16 @@ body {
     font-family: monospace;
 }
 
-.camera-card {
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 6px;
-    padding: 10px;
-    transition: all 0.2s;
-}
-
-.camera-card.selected {
-    background: rgba(72, 187, 120, 0.15);
-    border-color: #48bb78;
-}
-
-.camera-card:hover {
-    background: rgba(255, 255, 255, 0.15);
-    border-color: rgba(255, 255, 255, 0.3);
+.current-badge {
+    background: #48bb78;
+    color: white;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 0.75em;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    box-shadow: 0 2px 4px rgba(72, 187, 120, 0.3);
 }
 
 .camera-actions {
@@ -521,167 +535,142 @@ body {
 }
 </style>
 
+<!-- ВАЖНО: УДАЛЯЕМ весь дублирующий код из этого скрипта -->
+<!-- Оставляем ТОЛЬКО недостающие функции -->
+
 <script>
-// В StreamController.prototype.renderCameraList заменяем радиокнопку на квадратик
-StreamController.prototype.renderCameraList = function(cameras) {
-    const container = document.getElementById('camera-list');
-    if (!container) return;
-    
-    if (!cameras || cameras.length === 0) {
-        container.innerHTML = '<div class="no-cameras">Камеры не найдены</div>';
-        return;
-    }
-    
-    container.innerHTML = cameras.map(camera => {
-        // Упрощаем название камеры
-        let cameraName = camera.name || camera.device_path;
-        cameraName = cameraName.replace(/\(usb-[^)]+\)/g, '').trim();
-        cameraName = cameraName.replace(/\(046d:0825\)/g, '').trim();
-        cameraName = cameraName.replace(/:/g, '').trim();
-        
-        // Если название слишком длинное, обрезаем
-        if (cameraName.length > 25) {
-            cameraName = cameraName.substring(0, 22) + '...';
-        }
-        
-        const isSelected = camera.device_path === this.currentDevicePath;
-        
-        return `
-            <div class="camera-card ${isSelected ? 'selected' : ''}" 
-                 onclick="handleCameraChange('${camera.device_path}')"
-                 title="${camera.name || camera.device_path}">
-                <div class="camera-selector">
-                    <div class="selection-square ${isSelected ? 'selected' : ''}">
-                        ${isSelected ? '✓' : ''}
-                    </div>
-                    <div class="camera-info">
-                        <div class="camera-header">
-                            <span class="camera-name">${this.escapeHtml(cameraName)}</span>
-                            ${isSelected ? '<span class="current-badge">Текущая</span>' : ''}
-                        </div>
-                        <div class="camera-path">${camera.device_path}</div>
-                    </div>
-                </div>
-            </div>
-        `;
-    }).join('');
-};
-
-// Обновляем отображение текущей камеры
-StreamController.prototype.updateCurrentCameraDisplay = function(cameras) {
-    const currentCamera = cameras.find(cam => cam.device_path === this.currentDevicePath);
-    const displayElement = document.getElementById('current-camera-display');
-    
-    if (displayElement) {
-        if (currentCamera) {
-            let cameraName = currentCamera.name || currentCamera.device_path;
-            cameraName = cameraName.replace(/\(usb-[^)]+\)/g, '').trim();
-            cameraName = cameraName.replace(/\(046d:0825\)/g, '').trim();
-            cameraName = cameraName.replace(/:/g, '').trim();
-            
-            if (cameraName.length > 20) {
-                cameraName = cameraName.substring(0, 17) + '...';
-            }
-            
-            displayElement.textContent = cameraName;
-        } else {
-            displayElement.textContent = this.currentDevicePath;
-        }
-    }
-};
-
-async function handleCameraChange(devicePath) {
-    console.log(`🎯 Смена камеры на: ${devicePath}`);
-    
-    try {
-        const response = await fetch('/api/cameras/select', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ device_path: devicePath })
-        });
-        
-        const data = await response.json();
-        
-        if (data.status === 'success') {
-            console.log(`✅ Камера изменена на ${devicePath}`);
-            
-            if (streamController) {
-                // Обновляем текущее устройство
-                streamController.currentDevicePath = devicePath;
-                
-                // Перезагружаем камеры
-                await streamController.loadCameras();
-                
-                // Проверяем статус
-                await streamController.checkStatus();
-                
-                // Если стрим был активен, обновляем видео
-                if (data.stream_active) {
-                    setTimeout(() => {
-                        streamController.refreshVideo();
-                    }, 300);
-                }
-            }
-        } else {
-            console.error('❌ Ошибка смены камеры:', data.message);
-        }
-    } catch (error) {
-        console.error('❌ Ошибка смены камеры:', error);
-    }
-}
-
-
-// В checkCamera тоже убираем alert
+// Функция для проверки камеры (если её нет в app.js)
 async function checkCamera() {
     try {
+        console.log('🔍 Проверка камеры...');
         const response = await fetch('/api/camera/test');
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        
         const data = await response.json();
         
         if (data.status === 'success') {
             console.log(`✅ Камера работает (${data.resolution}, ${data.fps} FPS)`);
+            
+            // Показываем уведомление вместо alert
+            showNotification(`✅ Камера работает<br>Разрешение: ${data.resolution}<br>FPS: ${data.fps}`);
         } else {
             console.error(`❌ Камера не работает: ${data.message}`);
+            showNotification(`❌ Камера не работает: ${data.message}`);
         }
     } catch (error) {
         console.error('❌ Ошибка проверки:', error);
+        showNotification(`❌ Ошибка проверки: ${error.message}`);
     }
 }
 
-// Остальные функции остаются без изменений
-document.addEventListener('DOMContentLoaded', () => {
-    streamController = new StreamController();
+// Функция для показа уведомлений (вместо alert)
+function showNotification(message, type = 'info') {
+    // Удаляем старое уведомление, если есть
+    const oldNotification = document.getElementById('custom-notification');
+    if (oldNotification) {
+        oldNotification.remove();
+    }
+    
+    // Создаем новое уведомление
+    const notification = document.createElement('div');
+    notification.id = 'custom-notification';
+    notification.innerHTML = `
+        <div style="
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: ${type === 'error' ? '#e53e3e' : '#48bb78'};
+            color: white;
+            padding: 15px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            z-index: 10000;
+            max-width: 300px;
+            animation: slideIn 0.3s ease;
+        ">
+            <div style="font-weight: bold; margin-bottom: 5px;">
+                ${type === 'error' ? '❌ Ошибка' : '✅ Успех'}
+            </div>
+            <div>${message}</div>
+        </div>
+    `;
+    
+    // Добавляем стили для анимации
+    const style = document.createElement('style');
+    style.textContent = `
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+    `;
+    document.head.appendChild(style);
+    
+    document.body.appendChild(notification);
+    
+    // Автоматически скрываем через 5 секунд
+    setTimeout(() => {
+        if (notification.parentNode) {
+            notification.style.animation = 'slideOut 0.3s ease forwards';
+            
+            const slideOutStyle = document.createElement('style');
+            slideOutStyle.textContent = `
+                @keyframes slideOut {
+                    from { transform: translateX(0); opacity: 1; }
+                    to { transform: translateX(100%); opacity: 0; }
+                }
+            `;
+            document.head.appendChild(slideOutStyle);
+            
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.remove();
+                }
+                if (slideOutStyle.parentNode) {
+                    slideOutStyle.remove();
+                }
+            }, 300);
+        }
+    }, 5000);
+}
+
+// Функция для обновления размера видео (если её нет в app.js)
+function updateVideoSize() {
+    const video = document.getElementById('video-stream');
+    const sizeElement = document.getElementById('stream-size');
+    
+    if (video && video.naturalWidth > 0 && sizeElement) {
+        const width = video.naturalWidth;
+        const height = video.naturalHeight;
+        sizeElement.textContent = `Размер: ${width}×${height}`;
+    }
+}
+
+// Слушаем события загрузки видео
+const videoElement = document.getElementById('video-stream');
+if (videoElement) {
+    videoElement.addEventListener('load', function() {
+        console.log('✅ Видео загружено');
+        updateVideoSize();
+    });
+    
+    videoElement.addEventListener('error', function() {
+        console.log('❌ Ошибка загрузки видео');
+    });
+}
+
+// Добавляем обработку размера окна
+window.addEventListener('resize', function() {
+    updateVideoSize();
 });
 
-function startStream() { streamController?.startStream(); }
-function stopStream() { streamController?.stopStream(); }
-function refreshStream() { streamController?.refreshVideo(); }
-function restartStream() { 
-    stopStream();
-    setTimeout(() => startStream(), 1000);
-}
-function refreshCameras() { streamController?.loadCameras(); }
-
-function onVideoLoad() {
-    console.log('✅ Видео загружено');
-    const placeholder = document.getElementById('video-placeholder');
-    if (placeholder) placeholder.style.display = 'none';
-    
-    const video = document.getElementById('video-stream');
-    if (video.naturalWidth > 0) {
-        const info = `${video.naturalWidth}×${video.naturalHeight}`;
-        const sizeElement = document.getElementById('stream-size');
-        if (sizeElement) sizeElement.textContent = `Размер: ${info}`;
-    }
-}
-
-function onVideoError() {
-    console.log('❌ Ошибка загрузки видео');
-    const placeholder = document.getElementById('video-placeholder');
-    if (placeholder) placeholder.style.display = 'flex';
-}
-
-window.addEventListener('beforeunload', () => {
-    streamController?.destroy();
+// Инициализируем при загрузке страницы
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('📹 Страница камеры загружена');
+    // Обновляем размер видео через небольшую задержку
+    setTimeout(updateVideoSize, 1000);
 });
 </script>
 {% endblock %}

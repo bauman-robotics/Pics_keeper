@@ -1,14 +1,78 @@
+<!-- base.html -->
+
 <!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Webcam Stream Control{% endblock %}</title>
+    
+    <!-- Favicon (решает ошибку 404) -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📹</text></svg>">
+    
+    <!-- Предзагрузка CSS -->
+    <link rel="preload" href="{{ url_for('static', filename='css/style.css') }}" as="style">
+    
+    <!-- Основные стили -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    
+    <!-- Иконки Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    
+    <!-- Inline стили для предотвращения FOUC -->
+    <style>
+        /* Скрываем контент до полной загрузки */
+        body.preload {
+            opacity: 0;
+            visibility: hidden;
+        }
+        
+        body.loaded {
+            opacity: 1;
+            visibility: visible;
+            transition: opacity 0.3s ease;
+        }
+        
+        /* Стили для preloader */
+        #preloader {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #4b6cb7 0%, #182848 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            color: white;
+        }
+        
+        .preloader-spinner {
+            font-size: 48px;
+            margin-bottom: 20px;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+    
     {% block extra_css %}{% endblock %}
 </head>
-<body>
+<body class="preload">
+    <!-- Preloader -->
+    <div id="preloader">
+        <div class="preloader-spinner">
+            <i class="fas fa-camera"></i>
+        </div>
+        <div>Загрузка камеры...</div>
+    </div>
+
+    <!-- Основной контент -->
     <div class="container">
         <header class="main-header">
             <div class="header-content">
@@ -34,7 +98,31 @@
         </footer>
     </div>
 
-    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <!-- Основной скрипт -->
+    <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
+    
+    <!-- Скрипт для управления загрузкой -->
+    <script>
+        // Функция для показа контента
+        function showContent() {
+            const preloader = document.getElementById('preloader');
+            if (preloader) {
+                preloader.style.display = 'none';
+            }
+            document.body.classList.remove('preload');
+            document.body.classList.add('loaded');
+        }
+        
+        // Показываем контент когда всё загружено
+        window.addEventListener('load', function() {
+            // Даем небольшую задержку для плавности
+            setTimeout(showContent, 300);
+        });
+        
+        // Fallback на случай если событие load не сработает
+        setTimeout(showContent, 5000);
+    </script>
+    
     {% block extra_js %}{% endblock %}
 </body>
 </html>

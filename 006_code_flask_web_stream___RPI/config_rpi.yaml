@@ -10,7 +10,7 @@ server:
   max_concurrent_streams: 4  # Добавьте эту строку
 
 raspberry_pi: true  # <--- Флаг для Raspberry Pi
-save_test_frame: true  # Сохранять тестовый кадр для проверки
+save_test_frame: false  # Сохранять тестовый кадр для проверки
 
   # Дополнительные настройки
 rpi_settings:
@@ -20,9 +20,22 @@ rpi_settings:
 
 # Параметры камеры
 camera:
-  # Основные настройки
-  device: 1                 # Номер устройства камеры (0, 1, 2...)
-  backend: "auto"           # Бэкенд: "auto", "v4l2", "ffmpeg", "direct"
+
+  # === ВАРИАНТ 1: По номеру устройства ===
+  # device: "/dev/video0"                 # /dev/video0 (первая USB камера)
+  # device: "/dev/video2"                 # /dev/video2 (вторая USB камера - Logitech)
+  device: "/dev/video4"          # /dev/video4 (третья USB камера - USB 2.0 HD 720P)
+  
+  # === ВАРИАНТ 2: Прямой путь ===
+  # device: "/dev/video0"     # Прямой путь к первой USB камере
+  # device: "/dev/video2"     # Прямой путь ко второй USB камере
+  # device: "/dev/video4"     # Прямой путь к третьей USB камере
+  
+  # === ВАРИАНТ 3: CSI камера через Picamera2 ===
+  # device: "csi_0"           # CSI камера IMX708 (первая)
+  # device: "csi_1"           # CSI камера IMX415 (вторая)
+  
+  backend: "auto"           # Бэкенд: "auto", "v4l2", "picamera2", "direct"
   direct_path: "/dev/video0" # Прямой путь к устройству (используется при backend: "direct")
   
   
@@ -39,12 +52,14 @@ camera:
   
   # Тестирование бэкендов (если backend: "auto")
   test_backends:
-     - "rpi_v4l2"
-     - "default"
-    # - "v4l2_video0"
-    # - "v4l2_video1"
-    # - "ffmpeg_video0"
-     - "direct_video0"
+    - "picamera2"           # CSI камеры через Picamera2 (приоритет на RPi)
+    - "direct_video0"       # Прямой доступ к /dev/video0
+    - "direct_video2"       # Прямой доступ к /dev/video2  
+    - "direct_video4"       # Прямой доступ к /dev/video4
+    - "rpi_v4l2"            # V4L2 на Raspberry Pi
+    - "default"             # Стандартный бэкенд
+     
+     
     # - "direct_video1"
 
 # Параметры потока
