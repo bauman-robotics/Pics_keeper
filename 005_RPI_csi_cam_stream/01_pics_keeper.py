@@ -30,6 +30,17 @@ IMX415:
 ❌ AfEnable не поддерживается: Нет управления фокусом
 '''
 
+'''
+deactivate
+source /home/pi/projects/Hailo8_projects/cam_calibr/venv/bin/activate
+cd /home/pi/projects/Hailo8_projects/Pics_keeper/005_RPI_csi_cam_stream
+
+python3 01_pics_keeper.py
+
+http://localhost:8080
+'''
+
+
 import os
 import time
 import argparse
