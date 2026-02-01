@@ -1,0 +1,182 @@
+/* Основные переменные цветов */
+:root {
+    --primary-color: #4b6cb7;
+    --secondary-color: #182848;
+    --success-color: #38a169;
+    --danger-color: #e53e3e;
+    --warning-color: #d69e2e;
+    --info-color: #3182ce;
+    
+    --bg-color: #f8f9fa;
+    --card-bg: #ffffff;
+    --text-color: #2d3748;
+    --border-color: #e2e8f0;
+    --shadow-color: rgba(0, 0, 0, 0.1);
+}
+
+/* Темная тема */
+.dark-theme {
+    --bg-color: #1a202c;
+    --card-bg: #2d3748;
+    --text-color: #e2e8f0;
+    --border-color: #4a5568;
+    --shadow-color: rgba(0, 0, 0, 0.3);
+}
+
+/* Основные стили */
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+    color: var(--text-color);
+    min-height: 100vh;
+    margin: 0;
+    padding: 20px;
+}
+
+.container {
+    max-width: 1400px;
+    margin: 0 auto;
+    background: var(--bg-color);
+    border-radius: 15px;
+    box-shadow: 0 10px 30px var(--shadow-color);
+    overflow: hidden;
+}
+
+/* Кнопки */
+.btn {
+    padding: 12px 24px;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.btn:active {
+    transform: translateY(0);
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+.btn-start { background: linear-gradient(135deg, var(--success-color), #48bb78); color: white; }
+.btn-stop { background: linear-gradient(135deg, var(--danger-color), #fc8181); color: white; }
+.btn-secondary { background: linear-gradient(135deg, #805ad5, #9f7aea); color: white; }
+.btn-info { background: linear-gradient(135deg, var(--info-color), #63b3ed); color: white; }
+
+/* В CSS добавляем стили для квадратиков выбора */
+.camera-selector {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    width: 100%;
+}
+
+.selection-square {
+    width: 20px;
+    height: 20px;
+    border: 2px solid #718096;
+    border-radius: 4px;
+    background: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: transparent;
+    font-size: 12px;
+    font-weight: bold;
+    flex-shrink: 0;
+    transition: all 0.2s ease;
+}
+
+.selection-square.selected {
+    border-color: #48bb78;
+    background: #48bb78;
+    color: white;
+    box-shadow: 0 0 8px rgba(72, 187, 120, 0.4);
+}
+
+.camera-card:hover .selection-square {
+    border-color: #a0aec0;
+}
+
+/* .camera-card.selected:hover .selection-square {
+    border-color: #38a169;
+}   */
+
+.camera-card.selected {
+    background: rgba(56, 161, 105, 0.1);
+    border-color: #38a169;
+}   
+
+.camera-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.camera-name {
+    font-weight: 600;
+    color: #e2e8f0;
+    font-size: 0.9em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 2px;
+}
+
+.camera-path {
+    font-size: 0.8em;
+    color: #a0aec0;
+    font-family: monospace;
+}
+
+.camera-card {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    padding: 10px;
+    transition: all 0.2s;
+    cursor: pointer;
+}
+
+.camera-card.selected {
+    background: rgba(72, 187, 120, 0.1);
+    border-color: #48bb78;
+}
+
+.camera-card:hover {
+    background: rgba(255, 255, 255, 0.15);
+    transform: translateX(2px);
+}
+
+.current-badge {
+    background: #48bb78;
+    color: white;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 0.75em;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    box-shadow: 0 2px 4px rgba(72, 187, 120, 0.3);
+}
+
+/* Яркий зеленый для темной темы */
+.dark-theme .current-badge {
+    background: #38a169;
+    color: #f0fff4;
+    box-shadow: 0 0 10px rgba(72, 187, 120, 0.5);
+}

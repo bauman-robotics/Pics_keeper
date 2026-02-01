@@ -17,6 +17,18 @@ screen -X -S bird_detector quit
 2. активация вирт окружения
 source /home/pi/projects/Hailo8_projects/Hailo-8/16__hailort_v4.23.0/hailo_runtime_env/bin/activate
 
+6. Выбор камер и fps 
+export DISPLAY=:0 && python3 /home/pi/projects/Hailo8_projects/Hailo-8/20_imx415_cam/hailo_inference/bird_detector_v5_5_fps.py --input rpi
+
+
+
+sudo lsof /dev/video* 2>/dev/null || echo "Камеры свободны"
+
+# Посмотрите устройства V4L2
+v4l2-ctl --list-devices
+
+deactivate
+
 # ======
 IMX708 (Camera Module 3):
 ✅ LensPosition поддерживается: Можно менять от 0.0 до 1.0
@@ -38,9 +50,16 @@ cd /home/pi/projects/Hailo8_projects/Pics_keeper/005_RPI_csi_cam_stream
 python3 01_pics_keeper.py
 
 http://localhost:8080
+
+
+=== CSI only ===
+Скрипт для стрима с выбранной csi камеры + скриншоты. Работает на распберри. 
+Папка: 005_RPI_csi_cam_stream
+01_pics_keeper.py
+~/projects/Hailo8_projects/Pics_keeper/005_RPI_csi_cam_stream $ python3 01_pics_keeper.py
+================
+
 '''
-
-
 import os
 import time
 import argparse
@@ -93,8 +112,8 @@ CAMERA_PROFILES = {
 }
 
 # ПАРАМЕТРЫ ПО УМОЛЧАНИЮ
-#DEFAULT_CAMERA_TYPE = 'imx415'  # imx708 -0    imx415 -1    ov5647
-DEFAULT_CAMERA_TYPE = 'imx708'
+DEFAULT_CAMERA_TYPE = 'imx415'  # imx708 -0    imx415 -1    ov5647
+#DEFAULT_CAMERA_TYPE = 'imx708'
 
 #STREAM_TYPE = 'full_resolution'
 STREAM_TYPE = '1280x720'

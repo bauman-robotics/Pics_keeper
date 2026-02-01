@@ -23,7 +23,26 @@ export DISPLAY=:0 && python3 /home/pi/projects/Hailo8_projects/Hailo-8/17_Bird_D
 5.
 export DISPLAY=:0 && python3 /home/pi/projects/Hailo8_projects/Hailo-8/17_Bird_Detector/bird_detector_v5_7_cat.py --input rpi
 
+
+6. Выбор камер и fps 
+export DISPLAY=:0 && python3 /home/pi/projects/Hailo8_projects/Hailo-8/20_imx415_cam/hailo_inference/bird_detector_v5_5_fps.py --input rpi
+
 sudo lsof /dev/video* 2>/dev/null || echo "Камеры свободны"
+
+# Посмотрите устройства V4L2
+v4l2-ctl --list-devices
+
+deactivate
+
+=== WEB only ==== flask ======
+Скрипт для стрима с выбранной веб камеры + выбор, запуск и остановка на веб странице. На flask.  
+Папка: 004_code_flask_web_stream
+03_flask_webcam_stream__RPI.py
++ config_rpi.yaml
+
++ остановил pipiwire  
+- Не работает на распберри. 
+=================
 '''
 
 
@@ -38,10 +57,10 @@ import os
 import numpy as np
 from flask import Flask, Response, render_template, jsonify, request
 import argparse
-from utils.camera_checker import CameraChecker
+from utils_rpi.camera_checker import CameraChecker
 
 # Импортируем логгер
-from utils.logger import create_logger
+from utils_rpi.logger import create_logger
 
 def load_config(config_path="config_rpi.yaml"):
     """Загрузка конфигурации из YAML файла"""

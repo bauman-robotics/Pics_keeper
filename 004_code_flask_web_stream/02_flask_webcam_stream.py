@@ -5,6 +5,28 @@ YAML Configuration Support
 """
 # 02_flask_webcam_stream.py
 
+'''
+export DISPLAY=:0
+
+1. убить сессию:
+screen -X -S bird_detector quit
+
+2. активация вирт окружения
+source /home/pi/projects/Hailo8_projects/Hailo-8/16__hailort_v4.23.0/hailo_runtime_env/bin/activate
+
+3. 
+export DISPLAY=:0 && python3 /home/pi/projects/Hailo8_projects/Hailo-8/17_Bird_Detector/bird_detector_v5_5.py --input rpi
+
+4.
+export DISPLAY=:0 && python3 /home/pi/projects/Hailo8_projects/Hailo-8/17_Bird_Detector/bird_detector_v5_6_test_v4.py --input rpi
+
+5.
+export DISPLAY=:0 && python3 /home/pi/projects/Hailo8_projects/Hailo-8/17_Bird_Detector/bird_detector_v5_7_cat.py --input rpi
+
+sudo lsof /dev/video* 2>/dev/null || echo "Камеры свободны"
+'''
+
+
 import yaml
 import cv2
 import sys
