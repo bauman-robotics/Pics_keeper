@@ -1056,6 +1056,39 @@ class CameraStreamer:
             
             return Response(generate_test(), mimetype='text/event-stream')
 
+
+        @self.app.route('/api/config')
+        def get_config():
+            """Получение конфигурации сервера для фронтенда"""
+            try:
+                return jsonify({
+                    'success': True,
+                    'config': {
+                        'stream': {
+                            'auto_start': self.config.get('stream', {}).get('auto_start', False),
+                            'max_error_count': self.config.get('stream', {}).get('max_error_count', 20),
+                            'buffer_size': self.config.get('stream', {}).get('buffer_size', 30)
+                        },
+                        'camera': {
+                            'device': self.config.get('camera', {}).get('device', ''),
+                            'backend': self.config.get('camera', {}).get('backend', 'auto'),
+                            'width': self.config.get('camera', {}).get('width', 640),
+                            'height': self.config.get('camera', {}).get('height', 480),
+                            'fps': self.config.get('camera', {}).get('fps', 15),
+                            'jpeg_quality': self.config.get('camera', {}).get('jpeg_quality', 85)
+                        },
+                        'server': {
+                            'host': self.config.get('server', {}).get('host', '0.0.0.0'),
+                            'port': self.config.get('server', {}).get('port', 5000)
+                        }
+                    }
+                })
+            except Exception as e:
+                return jsonify({
+                    'success': False,
+                    'error': str(e)
+                })   
+
     def run(self):
         """Запуск сервера"""
         try:

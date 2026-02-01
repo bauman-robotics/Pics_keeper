@@ -1,10 +1,45 @@
 // ----------------- app.js -------------------------------------------------
 class StreamController {
     constructor() {
+
+        // === ПАТТЕРН СИНГЛТОН: если уже существует, возвращаем существующий ===
+        if (window.__streamControllerInstance) {
+            console.log('⚠️ StreamController уже создан, возвращаю существующий экземпляр');
+            return window.__streamControllerInstance;
+        } 
+        // Сохраняем ссылку на себя
+        window.__streamControllerInstance = this;
+
+        // === ОБЯЗАТЕЛЬНО ДОБАВЬТЕ ЭТИ ЛОГИ ===
+        console.log('🛠️ === КОНСТРУКТОР StreamController ВЫЗВАН ===');
+        console.trace('📌 Трассировка вызова конструктора');
+        
         // Основные свойства
         this.isStreamActive = false;
         this.currentDevicePath = null;
-        this.cameraType = 'v4l2';
+        this.cameraType = null;
+        
+        // КОНФИГУРАЦИЯ - ГАРАНТИРОВАННЫЙ АВТОЗАПУСК
+        this.config = {
+            stream: { 
+                auto_start: true // ← ГАРАНТИРОВАННО true
+            },
+            camera: { 
+                device: '/dev/video4'
+            }
+        };
+        
+        // ВАЖНО: ЛОГИРУЕМ ЗНАЧЕНИЕ AUTO_START
+        console.log('⚙️ КОНФИГУРАЦИЯ В КОНСТРУКТОРЕ:');
+        console.log('  auto_start =', this.config.stream.auto_start);
+        console.log('  тип =', typeof this.config.stream.auto_start);
+        console.log('  вся конфигурация:', JSON.stringify(this.config));
+        
+        if (this.config.stream.auto_start === true) {
+            console.log('✅ АВТОЗАПУСК ВКЛЮЧЕН (значение: true, тип: boolean)');
+        } else {
+            console.log('❌ ПРОБЛЕМА: auto_start не true! Значение:', this.config.stream.auto_start);
+        }
         
         // Элементы DOM
         this.videoElement = document.getElementById('video-stream');
@@ -21,6 +56,24 @@ class StreamController {
         
         // Инициализация с защитой
         this.init();
+        
+
+
+        console.log('✅ АВТОЗАПУСК ВКЛЮЧЕН (значение: true, тип: boolean)');
+        
+        // === ДОБАВЬТЕ ЭТО СРАЗУ ПОСЛЕ ЛОГА ===
+        console.log('🚨 НЕМЕДЛЕННЫЙ ЗАПУСК АВТОЗАПУСКА ИЗ КОНСТРУКТОРА');
+        
+        // Запускаем handleAutoStart через 1 секунду
+        setTimeout(() => {
+            console.log('⏰ ТАЙМЕР: запускаю handleAutoStart()');
+            if (typeof this.handleAutoStart === 'function') {
+                this.handleAutoStart();
+            } else {
+                console.error('❌ handleAutoStart не является функцией!');
+            }
+        }, 1000);
+
     }
 
 
@@ -35,6 +88,79 @@ class StreamController {
         const currentCameraDisplay = document.getElementById('current-camera-display');
         if (currentCameraDisplay) {
             currentCameraDisplay.innerHTML = '<span style="color: #48bb78;">Загрузка...</span>';
+        }
+    }    
+
+    // === ДОБАВЬТЕ ЭТОТ МЕТОД В КЛАСС ===
+    async handleAutoStart() {
+        // ЗАЩИТА от повторного вызова
+        if (this._autoStartCalled) {
+            console.log('⏸️ handleAutoStart уже был вызван, пропускаю');
+            return;
+        }
+        
+        this._autoStartCalled = true;
+        
+        console.log('🎯 === НАЧАЛО handleAutoStart() ===');
+        console.log('📊 Проверяем конфигурацию:', {
+            auto_start: this.config?.stream?.auto_start,
+            isStreamActive: this.isStreamActive
+        });
+        
+        // Если автозапуск включен и стрим не активен
+        if (this.config?.stream?.auto_start && !this.isStreamActive) {
+            console.log('🚀 УСЛОВИЕ ВЫПОЛНЕНО! Запускаю автозапуск...');
+            
+            // Задержка 2 секунды для полной инициализации
+            setTimeout(async () => {
+                try {
+                    console.log('▶️ Запускаю стрим...');
+                    await this.startStream();
+                    console.log('✅ Автозапуск выполнен успешно!');
+                } catch (error) {
+                    console.error('❌ Ошибка автозапуска:', error);
+                }
+            }, 2000);
+            
+        } else {
+            console.log('⏸️ Автозапуск не требуется:', {
+                reason: !this.config?.stream?.auto_start ? 'auto_start = false' : 'стрим уже активен',
+                auto_start: this.config?.stream?.auto_start,
+                isStreamActive: this.isStreamActive
+            });
+        }
+    } 
+
+    // Временный метод для прямого запуска
+    async directAutoStart() {
+        console.log('🚨 ПРЯМОЙ АВТОЗАПУСК (обходной путь)');
+        
+        try {
+            console.log('🔍 Проверяю статус сервера...');
+            const response = await fetch('/api/stream/status');
+            const data = await response.json();
+            
+            console.log('📊 Статус сервера:', data);
+            
+            if (!data.stream_active) {
+                console.log('▶️ Запускаю стрим...');
+                const startResponse = await fetch('/api/stream/start', { method: 'POST' });
+                const startData = await startResponse.json();
+                
+                console.log('✅ Результат запуска:', startData);
+                
+                // Обновляем UI
+                if (startData.status === 'started' || startData.status === 'already_running') {
+                    this.updateUI(true);
+                    console.log('✅ Стрим запущен!');
+                }
+            } else {
+                console.log('✅ Стрим уже активен');
+                this.updateUI(true);
+            }
+            
+        } catch (error) {
+            console.error('❌ Ошибка прямого автозапуска:', error);
         }
     }    
     
@@ -804,15 +930,17 @@ class StreamController {
 }
 
 // Глобальный экземпляр контроллера
-let streamController = null;
+let streamController = window.streamController || window.__streamControllerInstance || null;
 
 // Инициализация после полной загрузки страницы
 document.addEventListener('DOMContentLoaded', () => {
     // Небольшая задержка для полной загрузки стилей
     setTimeout(() => {
-        if (!streamController) {
-            streamController = new StreamController();
-            console.log('✅ StreamController инициализирован');
+        if (!window.streamController && !window.__streamControllerInstance) {
+            console.log('🔄 Инициализация StreamController после загрузки DOM...');
+            window.streamController = new StreamController();
+        } else {
+            console.log('ℹ️ StreamController уже инициализирован');
         }
     }, 500);
 });
@@ -980,3 +1108,4 @@ window.addEventListener('beforeunload', () => {
         streamController.destroy();
     }
 });
+
