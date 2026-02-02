@@ -50,10 +50,7 @@ deactivate
 http://localhost:5000/api/cameras
 =================
 
-
 pip install picamera2 numpy opencv-python
-
-
 
 source /home/pi/projects/Hailo8_projects/cam_calibr/venv/bin/activate
 
@@ -63,8 +60,12 @@ source /home/pi/projects/Hailo8_projects/Pics_keeper/venv/bin/activate
 
 cd /home/pi/projects/Hailo8_projects/Pics_keeper/006_code_flask_web_stream___RPI
 
-python3 03_flask_webcam_stream__RPI.py
+cd 006_code_flask_web_stream___RPI
 
+
+python3 05_flask_webcam_stream__RPI.py
+
+http://localhost:5000/
 '''
 
 

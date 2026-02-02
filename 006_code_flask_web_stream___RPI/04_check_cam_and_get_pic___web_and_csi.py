@@ -24,6 +24,10 @@ pip install Pillow
 
 source /home/pi/projects/Hailo8_projects/cam_calibr/venv/bin/activate
 
+cd 006_code_flask_web_stream___RPI
+
+# ===== cli интерфейс без стрима, скриншоты с выбранной камеры: =====
+python3 04_check_cam_and_get_pic___web_and_csi.py
 '''
 
 import cv2
