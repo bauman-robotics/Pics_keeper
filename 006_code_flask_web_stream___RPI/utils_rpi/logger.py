@@ -28,8 +28,17 @@ class StreamLogger:
         
         # Определяем базовую директорию (где находится скрипт)
         script_dir = os.path.dirname(os.path.abspath(__file__))
+        # os.path.dirname(path) возвращает родительскую директорию переданного пути
         project_root = os.path.dirname(os.path.dirname(script_dir))
-        
+        '''
+        # Пример пути
+        path = "/home/user/project/src/main.py"
+
+        # Каждый вызов dirname "поднимается" на уровень выше
+        print(os.path.dirname(path))         # /home/user/project/src
+        print(os.path.dirname(os.path.dirname(path)))  # /home/user/project
+        print(os.path.dirname(os.path.dirname(os.path.dirname(path))))  # /home/user        
+        '''
         # Создаем абсолютный путь к директории логов
         self.log_dir = os.path.join(project_root, log_dir)
         self.logger = None
