@@ -83,6 +83,8 @@ import argparse
 from utils_rpi.camera_checker import CameraChecker
 from utils_rpi.test_cam_backend import test_camera_backends
 
+# Импортируем логгер
+from utils_rpi.logger import create_logger
 
 # Добавляем путь к utils_rpi
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -111,9 +113,6 @@ except ImportError:
     print("   Установите: pip install picamera2")
 
 
-# Импортируем логгер
-from utils_rpi.logger import create_logger
-
 def load_config(config_path="config_rpi.yaml"):
     """Загрузка конфигурации из YAML файла"""
     try:
@@ -131,18 +130,6 @@ def load_config(config_path="config_rpi.yaml"):
     except Exception as e:
         print(f"❌ Ошибка загрузки конфигурации: {e}")
         sys.exit(1)
-
-def get_camera_backend(backend_name):
-    """Получение бэкенда OpenCV по имени"""
-    backends = {
-        "default": None,
-        "v4l2": cv2.CAP_V4L2,
-        "ffmpeg": cv2.CAP_FFMPEG,
-        "direct": cv2.CAP_V4L2  # Для прямого доступа используем V4L2
-    }
-    return backends.get(backend_name.lower(), None)
-
-
 
 class CameraStreamer:
     """Класс для управления камерой и стримингом"""
@@ -1047,6 +1034,8 @@ def main():
     print("=" * 60)
     
     camera_info = test_camera_backends(config, logger)
+
+    log_all_available_cameras(logger)
     
     if camera_info is None:
         logger.log_error("НЕ НАЙДЕНА РАБОЧАЯ КАМЕРА!")

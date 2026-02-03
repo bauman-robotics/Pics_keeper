@@ -21,6 +21,19 @@ except ImportError:
     print("⚠️  Picamera2 не установлен. CSI камеры не будут доступны.")
     print("   Установите: pip install picamera2")
 
+# ===============================================================
+# not used 
+def get_camera_backend(backend_name):
+    """Получение бэкенда OpenCV по имени"""
+    backends = {
+        "default": None,
+        "v4l2": cv2.CAP_V4L2,
+        "ffmpeg": cv2.CAP_FFMPEG,
+        "direct": cv2.CAP_V4L2  # Для прямого доступа используем V4L2
+    }
+    return backends.get(backend_name.lower(), None)
+
+# ===============================================================
 
 def test_camera_backends(config, logger):
     """Тестируем разные способы открытия камеры согласно конфигурации"""
