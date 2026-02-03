@@ -813,10 +813,49 @@ class CameraStreamer:
         
         @self.app.route('/logs')
         def logs_page():
-            """Страница с логами"""
+            """Страница с логами (HTML)"""
             user_ip, user_agent = self.get_client_info()
             self.logger.log_web_action('page_load', 'success', 'Logs page loaded', user_ip, user_agent)
             return render_template('logs.html')
+
+        @self.app.route('/api/logs')
+        def get_logs_api():
+            """API для получения логов в формате JSON"""
+            try:
+                # Получаем логи через логгер
+                raw_logs = self.logger.get_logs(limit=50)
+                
+                # Форматируем для фронтенда
+                formatted_logs = []
+                for log in raw_logs:
+                    formatted_logs.append({
+                        #'type': log.get('type', 'info'),
+                        'message': log.get('raw', ''),
+                        #'timestamp': log.get('timestamp', '')
+                    })
+                
+                return jsonify({
+                    'success': True,
+                    'logs': formatted_logs,
+                    'count': len(formatted_logs),
+                    'log_file': os.path.basename(self.logger.log_file) if hasattr(self.logger, 'log_file') else 'unknown'
+                })
+                
+            except Exception as e:
+                # Логируем ошибку
+                self.logger.error(f"API /api/logs error: {str(e)}")
+                
+                return jsonify({
+                    'success': False,
+                    'error': str(e),
+                    'logs': [
+                        {
+                            'type': 'error',
+                            'message': f'Ошибка получения логов: {str(e)}',
+                            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        }
+                    ]
+                }), 500
         
         @self.app.route('/api/camera/test', methods=['GET'])
         def test_camera():

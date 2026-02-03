@@ -278,6 +278,54 @@ class StreamLogger:
                 if key not in ['password', 'token', 'secret']:  # Не логируем чувствительные данные
                     self.logger.debug(f"   📋 {key}: {value}")
     
+
+    def get_logs(self, limit: int = 100):
+        """
+        Получение последних записей из лог-файла        
+        Args:
+            limit: Максимальное количество записей для возврата            
+        Returns:
+            Список словарей с логами
+        """
+        try:
+            logs = []
+            
+            # Читаем текущий лог-файл
+            if os.path.exists(self.log_file):
+                with open(self.log_file, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+                
+                # Парсим логи
+                for line in lines[-limit:]:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    
+                    # Определяем уровень логирования
+                    log_level = 'info'
+                    if ' - ERROR - ' in line:
+                        log_level = 'error'
+                    elif ' - WARNING - ' in line:
+                        log_level = 'warning'
+                    elif ' - DEBUG - ' in line:
+                        log_level = 'debug'
+                    elif ' - CRITICAL - ' in line:
+                        log_level = 'critical'
+                    
+                    logs.append({
+                        'raw': line,
+                        'type': log_level,
+                        'message': line,
+                        'timestamp': line.split(' - ')[0] if ' - ' in line else ''
+                    })
+            
+            return logs
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка чтения логов: {e}")
+            return []
+
+
 def create_logger(config_path: str = 'config_rpi.yaml', log_dir: str = '002_logs') -> StreamLogger:
     """Создание экземпляра логгера"""
     return StreamLogger(config_path, log_dir)
