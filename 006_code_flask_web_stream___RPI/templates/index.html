@@ -54,12 +54,21 @@
             <div id="camera-list" class="camera-list">
                 <div class="loading">Загрузка камер...</div>
             </div>
+            
+            <!-- ДВЕ КНОПКИ В ОДИН РЯД -->
             <div class="camera-actions">
                 <button class="btn btn-sm btn-secondary" onclick="refreshCameras()">
                     🔄 Обновить список
                 </button>
                 <button class="btn btn-sm btn-info" onclick="checkCamera()">
                     🔍 Проверить камеру
+                </button>
+            </div>
+            
+            <!-- Кнопка "Сделать снимок" отдельно -->
+            <div class="capture-section">
+                <button class="btn btn-secondary btn-capture-full" onclick="takePicture()">
+                    📸 Сделать снимок
                 </button>
             </div>
         </div>

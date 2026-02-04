@@ -467,6 +467,36 @@ class CameraStreamer:
         """Асинхронный перезапуск стрима"""
         time.sleep(0.5)
         self.start_stream_internal()
+
+    def capture_frame_to_file(self):
+        """Захват одного кадра и сохранение в файл"""
+        try:
+            frame = None
+            
+            if self.camera_type == 'csi':
+                # Захват с CSI камеры
+                if self.current_picam2:
+                    try:
+                        array = self.current_picam2.capture_array()
+                        if array is not None and len(array.shape) == 3 and array.shape[2] == 3:
+                            frame = cv2.cvtColor(array, cv2.COLOR_RGB2BGR)
+                    except Exception as e:
+                        self.logger.log_error(f"Ошибка захвата CSI кадра: {e}")
+                        return None
+            else:
+                # Захват с USB камеры через V4L2
+                with self.camera_lock:
+                    if self.current_v4l2_camera and self.current_v4l2_camera.isOpened():
+                        ret, frame = self.current_v4l2_camera.read()
+                        if not ret or frame is None:
+                            self.logger.log_error("Не удалось прочитать кадр с USB камеры")
+                            return None
+            
+            return frame
+            
+        except Exception as e:
+            self.logger.log_error(f"Ошибка в capture_frame_to_file: {e}")
+            return None        
     
     def setup_routes(self):
         """Настройка маршрутов Flask"""
@@ -948,6 +978,112 @@ class CameraStreamer:
             
             return Response(generate_test(), mimetype='text/event-stream')
 
+
+        @self.app.route('/api/camera/capture', methods=['POST'])
+        def capture_picture():
+            """Захват и сохранение снимка с камеры"""
+            user_ip, user_agent = self.get_client_info()
+            
+            try:
+                # Проверяем, запущен ли стрим
+                if not self.stream_active:
+                    self.logger.log_web_action('capture_picture', 'error', 
+                                            'Stream not active', user_ip, user_agent)
+                    return jsonify({
+                        'status': 'error',
+                        'message': 'Стрим не запущен. Запустите стрим сначала.'
+                    }), 400
+                
+                self.logger.log_web_action('capture_picture', 'info', 
+                                        'Starting picture capture', user_ip, user_agent)
+                
+                # Создаем папку для сохранения снимков
+                import datetime
+                photos_dir = os.path.join(current_dir, 'static', 'photos')
+                os.makedirs(photos_dir, exist_ok=True)
+                
+                # Получаем кадр
+                frame = self.capture_frame_to_file()
+                if frame is None:
+                    self.logger.log_web_action('capture_picture', 'error', 
+                                            'Failed to capture frame', user_ip, user_agent)
+                    return jsonify({
+                        'status': 'error',
+                        'message': 'Не удалось получить кадр с камеры'
+                    }), 500
+                
+                # Генерируем имя файла
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                filename = f"photo_{timestamp}.jpg"
+                filepath = os.path.join(photos_dir, filename)
+                
+                # Сохраняем изображение
+                jpeg_quality = self.config['camera'].get('jpeg_quality', 85)
+                success = cv2.imwrite(filepath, frame, [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality])
+                
+                if not success:
+                    self.logger.log_web_action('capture_picture', 'error', 
+                                            'Failed to save image', user_ip, user_agent)
+                    return jsonify({
+                        'status': 'error',
+                        'message': 'Не удалось сохранить изображение'
+                    }), 500
+                
+                # Получаем размер файла
+                file_size = os.path.getsize(filepath)
+                size_str = f"{file_size / 1024:.1f} KB"
+                
+                # URL для доступа к файлу
+                preview_url = f"/static/photos/{filename}"
+                
+                # Логируем успех
+                self.logger.log_web_action('capture_picture', 'success', 
+                                        f'Picture saved: {filename} ({size_str})', 
+                                        user_ip, user_agent)
+                
+                return jsonify({
+                    'status': 'success',
+                    'message': 'Снимок успешно сохранен',
+                    'filename': filename,
+                    'filepath': filepath,
+                    'preview_url': preview_url,
+                    'size': size_str,
+                    'timestamp': timestamp,
+                    'resolution': f'{frame.shape[1]}x{frame.shape[0]}'
+                })
+                
+            except Exception as e:
+                error_msg = f"Ошибка при создании снимка: {str(e)}"
+                self.logger.log_error(error_msg)
+                self.logger.log_web_action('capture_picture', 'error', 
+                                        error_msg, user_ip, user_agent)
+                return jsonify({
+                    'status': 'error',
+                    'message': error_msg
+                }), 500
+            
+        # Статический маршрут для доступа к фото
+        @self.app.route('/static/photos/<path:filename>')
+        def serve_photo(filename):
+            """Сервис для отдачи сохраненных фото"""
+            try:
+                photos_dir = os.path.join(current_dir, 'static', 'photos')
+                filepath = os.path.join(photos_dir, filename)
+                
+                # Безопасность: проверяем, что файл находится в правильной директории
+                if not os.path.abspath(filepath).startswith(os.path.abspath(photos_dir)):
+                    return "Forbidden", 403
+                
+                if not os.path.exists(filepath):
+                    return "Not Found", 404
+                
+                return self.app.send_static_file(f'photos/{filename}')
+                
+            except Exception as e:
+                self.logger.log_error(f"Ошибка при отдаче фото {filename}: {e}")
+                return "Internal Server Error", 500            
+
+
     def run(self):
         """Запуск сервера"""
         try:
@@ -1061,6 +1197,7 @@ def log_all_available_cameras(logger):
         else:
             logger.info(f"ОШИБКА: {e}")
 
+         
 def main():
     parser = argparse.ArgumentParser(description='Flask Webcam Stream with YAML Configuration')
     parser.add_argument('--config', '-c', default='config_rpi.yaml', 

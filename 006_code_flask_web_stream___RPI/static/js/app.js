@@ -951,6 +951,79 @@ async function checkStreamDiagnostics() {
     }
 }
 
+
+// Функция создания снимка (без всплывающих окон)
+async function takePicture() {
+    const btn = document.querySelector('.btn-capture-full');
+    const originalText = btn.innerHTML;
+    
+    try {
+        // Меняем состояние кнопки
+        btn.innerHTML = '📸 Сохранение...';
+        btn.disabled = true;
+        
+        console.log('📸 Отправка запроса на создание снимка...');
+        
+        // Отправляем запрос
+        const response = await fetch('/api/camera/capture', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+            console.log('✅ Снимок успешно сохранен:', data);
+            
+            // Просто меняем текст кнопки на успех
+            btn.innerHTML = '✅ Готово!';
+            btn.style.background = 'linear-gradient(135deg, #38a169, #68d391)';
+            
+            // Через 1.5 секунды возвращаем исходный вид
+            setTimeout(() => {
+                btn.innerHTML = originalText;
+                btn.style.background = 'linear-gradient(135deg, #8a2be2, #9370db)';
+            }, 1500);
+            
+        } else {
+            console.error('❌ Ошибка от сервера:', data.message);
+            
+            // Показываем ошибку на кнопке
+            btn.innerHTML = '❌ Ошибка';
+            btn.style.background = 'linear-gradient(135deg, #e53e3e, #fc8181)';
+            
+            setTimeout(() => {
+                btn.innerHTML = originalText;
+                btn.style.background = 'linear-gradient(135deg, #8a2be2, #9370db)';
+            }, 1500);
+        }
+        
+    } catch (error) {
+        console.error('❌ Ошибка при создании снимка:', error);
+        
+        // Показываем ошибку на кнопке
+        btn.innerHTML = '❌ Ошибка сети';
+        btn.style.background = 'linear-gradient(135deg, #e53e3e, #fc8181)';
+        
+        setTimeout(() => {
+            btn.innerHTML = originalText;
+            btn.style.background = 'linear-gradient(135deg, #8a2be2, #9370db)';
+        }, 1500);
+        
+    } finally {
+        // Разблокируем кнопку (после таймаута)
+        setTimeout(() => {
+            btn.disabled = false;
+        }, 1500);
+    }
+}
+
 // Показать все камеры (открыть модальное окно)
 function showAllCameras() {
     const modal = document.getElementById('camera-modal');

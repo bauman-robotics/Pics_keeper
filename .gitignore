@@ -214,3 +214,5 @@ venv/
 # 01_pics_keeper.py
 
 004_code_flask_web_stream/temp/      
+
+photos/
