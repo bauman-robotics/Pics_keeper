@@ -1,5 +1,16 @@
+# test_cam_backend.py
 
 import cv2
+import os
+import sys
+
+# Добавляем путь к utils_rpi
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.append(current_dir)
+
+print("start test_cam_backend.py")
+print(f"current_dir: {current_dir}")
 
 # Пробуем импортировать CSI Camera Manager
 try:

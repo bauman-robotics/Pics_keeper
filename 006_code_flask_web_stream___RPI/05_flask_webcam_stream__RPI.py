@@ -94,11 +94,11 @@ if utils_path not in sys.path:
 
 # Пробуем импортировать CSI Camera Manager
 try:
-    from csi_camera_manager import CSICameraManager
+    from utils_rpi.csi_camera_manager import CSICameraManager
     PICAMERA2_AVAILABLE = True
-    print("✅ CSICameraManager загружен успешно")
+
 except ImportError as e:
-    print(f"⚠️  Не удалось загрузить CSICameraManager: {e}")
+    print(f"⚠️  Не удалось загрузить CSICameraManager: {e}")    
     print("   Установите: pip install picamera2")
     print("   Или проверьте наличие файла utils_rpi/csi_camera_manager.py")
     PICAMERA2_AVAILABLE = False
