@@ -52,20 +52,29 @@ http://localhost:5000/api/cameras
 
 pip install picamera2 numpy opencv-python
 
+==== pi venv ==== 
 source /home/pi/projects/Hailo8_projects/cam_calibr/venv/bin/activate
-
-deactivate 
-
-source /home/pi/projects/Hailo8_projects/Pics_keeper/venv/bin/activate
-
-cd /home/pi/projects/Hailo8_projects/Pics_keeper/006_code_flask_web_stream___RPI
 
 cd 006_code_flask_web_stream___RPI
 
+deactivate 
+
+http://192.168.31.56:5000/
+
+=== pc venv ====
+source /home/ypc/projects/Hailo-8_projects/04_Pics_keeper/Pics_keeper/venv/bin/activate
+
+cd /home/ypc/projects/Hailo-8_projects/04_Pics_keeper/Pics_keeper/006_code_flask_web_stream___RPI
+
+cd 006_code_flask_web_stream___RPI
 
 python3 05_flask_webcam_stream__RPI.py
 
+sudo lsof -i :5000
+
 http://localhost:5000/
+
+
 '''
 
 
