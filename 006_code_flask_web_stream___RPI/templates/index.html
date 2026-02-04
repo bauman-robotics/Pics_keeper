@@ -73,6 +73,42 @@
             </div>
         </div>
 
+
+        <!-- Добавить в index.html после кнопки "Сделать снимок" -->
+        <!-- Исправленная секция фотографий -->
+        <div class="photos-preview-section" id="photos-preview-section">
+            <div class="photos-header">
+                <!-- <h4>📷 Последние снимки</h4> -->
+                <div class="photos-controls">
+                    <button class="btn btn-sm btn-info" onclick="loadPhotos()">
+                        🔄 Обновить
+                    </button>
+                    <button class="btn btn-sm btn-warning" onclick="clearAllPhotos()">
+                        🗑️ Очистить все
+                    </button>
+                    <!-- <span id="photos-stats" class="photos-stats">
+                        Загрузка...
+                    </span> -->
+                </div>
+            </div>
+            
+            <div id="photos-container" class="photos-container">
+                <div class="loading-photos">Загрузка фотографий...</div>
+            </div>
+            
+            <div id="photos-pagination" class="photos-pagination">
+                <button class="btn btn-sm" onclick="loadMorePhotos()" id="load-more-btn">
+                    📥 Загрузить еще
+                </button>
+                <span id="photos-count">0 фото</span>
+            </div>
+            
+            <div id="no-photos-message" class="no-photos-message">
+                📭 Нет сохраненных фотографий
+            </div>
+        </div>
+
+
         <!-- Быстрые ссылки -->
         <div class="quick-links">
             <a href="/status" class="btn btn-sm btn-info">

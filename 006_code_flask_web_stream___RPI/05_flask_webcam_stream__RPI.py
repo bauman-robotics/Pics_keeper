@@ -91,6 +91,7 @@ from flask import Flask, Response, render_template, jsonify, request
 import argparse
 from utils_rpi.camera_checker import CameraChecker
 from utils_rpi.test_cam_backend import test_camera_backends
+from datetime import datetime
 
 # Импортируем логгер
 from utils_rpi.logger import create_logger
@@ -189,6 +190,10 @@ class CameraStreamer:
         # Полный путь к шаблонам
         current_dir = os.path.dirname(os.path.abspath(__file__))
         full_templates_path = os.path.join(current_dir, templates_folder)
+
+        # Убедиться, что папки существуют
+        self.photos_dir = os.path.join(current_dir, 'static', 'photos')
+        os.makedirs(self.photos_dir, exist_ok=True)
         
         # Проверяем существование папки
         if not os.path.exists(full_templates_path):
@@ -497,6 +502,18 @@ class CameraStreamer:
         except Exception as e:
             self.logger.log_error(f"Ошибка в capture_frame_to_file: {e}")
             return None        
+        
+    @staticmethod    
+    def format_file_size(bytes_size):
+        """Форматирование размера файла в читаемый вид"""
+        if bytes_size < 1024:
+            return f"{bytes_size} B"
+        elif bytes_size < 1024 * 1024:
+            return f"{bytes_size / 1024:.1f} KB"
+        elif bytes_size < 1024 * 1024 * 1024:
+            return f"{bytes_size / (1024 * 1024):.1f} MB"
+        else:
+            return f"{bytes_size / (1024 * 1024 * 1024):.2f} GB"        
     
     def setup_routes(self):
         """Настройка маршрутов Flask"""
@@ -998,7 +1015,7 @@ class CameraStreamer:
                                         'Starting picture capture', user_ip, user_agent)
                 
                 # Создаем папку для сохранения снимков
-                import datetime
+                
                 photos_dir = os.path.join(current_dir, 'static', 'photos')
                 os.makedirs(photos_dir, exist_ok=True)
                 
@@ -1013,7 +1030,7 @@ class CameraStreamer:
                     }), 500
                 
                 # Генерируем имя файла
-                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
                 filename = f"photo_{timestamp}.jpg"
                 filepath = os.path.join(photos_dir, filename)
                 
@@ -1061,7 +1078,163 @@ class CameraStreamer:
                     'status': 'error',
                     'message': error_msg
                 }), 500
-            
+
+
+        @self.app.route('/api/photos')
+        def get_photos_list():
+            """Получение списка всех сохраненных фотографий"""
+            try:
+                # Проверяем существование папки
+                if not os.path.exists(self.photos_dir):
+                    os.makedirs(self.photos_dir, exist_ok=True)
+                    return jsonify({
+                        'status': 'success',
+                        'photos': [],
+                        'count': 0,
+                        'message': 'Папка создана, фото пока нет'
+                    })
+                
+                # Получаем список файлов
+                photos = []
+                for filename in sorted(os.listdir(self.photos_dir), reverse=True):
+                    if filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+                        filepath = os.path.join(self.photos_dir, filename)
+                        
+                        if os.path.isfile(filepath):
+                            # Получаем информацию о файле
+                            stat = os.stat(filepath)
+                            
+                            # Определяем размер изображения
+                            try:
+                                img = cv2.imread(filepath)
+                                if img is not None:
+                                    width, height = img.shape[1], img.shape[0]
+                                else:
+                                    width, height = 0, 0
+                            except:
+                                width, height = 0, 0
+                            
+                            photos.append({
+                                'filename': filename,
+                                'url': f'/static/photos/{filename}',
+                                'filepath': filepath,
+                                'size_bytes': stat.st_size,
+                                'size_formatted': self.format_file_size(stat.st_size),
+                                'created': datetime.fromtimestamp(stat.st_ctime).strftime('%Y-%m-%d %H:%M:%S'),
+                                'modified': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S'),
+                                'resolution': f'{width}x{height}',
+                                'type': 'image/jpeg'
+                            })
+                
+                # Ограничиваем количество возвращаемых фото (последние 50)
+                limited_photos = photos[:50]
+                
+                return jsonify({
+                    'status': 'success',
+                    'photos': limited_photos,
+                    'count': len(photos),
+                    'limited_count': len(limited_photos),
+                    'total_size': self.format_file_size(sum(p['size_bytes'] for p in photos)),
+                    'photos_dir': self.photos_dir,
+                    'server_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                })
+                
+            except Exception as e:
+                error_msg = f"Ошибка получения списка фото: {str(e)}"
+                self.logger.log_error(error_msg)
+                return jsonify({
+                    'status': 'error',
+                    'message': error_msg,
+                    'photos': []
+                }), 500
+
+        @self.app.route('/api/photos/delete/<filename>', methods=['DELETE'])
+        def delete_photo(filename):
+            """Удаление фотографии"""
+            try:
+                # Безопасность: проверяем, что это допустимое имя файла
+                import re
+                if not re.match(r'^photo_\d{8}_\d{6}_\d{6}\.jpg$', filename):
+                    return jsonify({
+                        'status': 'error',
+                        'message': 'Некорректное имя файла'
+                    }), 400
+                
+                filepath = os.path.join(self.photos_dir, filename)
+                
+                # Проверяем, что файл существует и внутри разрешенной директории
+                real_photos_path = os.path.realpath(self.photos_dir)
+                real_file_path = os.path.realpath(filepath)
+                
+                if not os.path.exists(filepath):
+                    return jsonify({
+                        'status': 'error',
+                        'message': 'Файл не найден'
+                    }), 404
+                    
+                if not real_file_path.startswith(real_photos_path):
+                    return jsonify({
+                        'status': 'error', 
+                        'message': 'Доступ запрещен'
+                    }), 403
+                
+                # Удаляем файл
+                os.remove(filepath)
+                
+                self.logger.log_web_action('delete_photo', 'success', 
+                                        f'Deleted: {filename}', 
+                                        request.remote_addr if hasattr(request, 'remote_addr') else 'unknown',
+                                        request.headers.get('User-Agent', 'Unknown'))
+                
+                return jsonify({
+                    'status': 'success',
+                    'message': f'Файл {filename} удален'
+                })
+                
+            except Exception as e:
+                error_msg = f"Ошибка удаления файла: {str(e)}"
+                self.logger.log_error(error_msg)
+                return jsonify({
+                    'status': 'error',
+                    'message': error_msg
+                }), 500
+
+        @self.app.route('/api/photos/clear', methods=['DELETE'])
+        def clear_all_photos():
+            """Удаление всех фотографий"""
+            try:
+                deleted_count = 0
+                deleted_size = 0
+                
+                for filename in os.listdir(self.photos_dir):
+                    if filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+                        filepath = os.path.join(self.photos_dir, filename)
+                        if os.path.isfile(filepath):
+                            file_size = os.path.getsize(filepath)
+                            os.remove(filepath)
+                            deleted_count += 1
+                            deleted_size += file_size
+                
+                message = f"Удалено {deleted_count} файлов, освобождено {self.format_file_size(deleted_size)}"
+                self.logger.log_web_action('clear_photos', 'success', message,
+                                        request.remote_addr, request.headers.get('User-Agent', 'Unknown'))
+                
+                return jsonify({
+                    'status': 'success',
+                    'message': message,
+                    'deleted_count': deleted_count,
+                    'deleted_size': deleted_size,
+                    'deleted_size_formatted': self.format_file_size(deleted_size)
+                })
+                
+            except Exception as e:
+                error_msg = f"Ошибка очистки фото: {str(e)}"
+                self.logger.log_error(error_msg)
+                return jsonify({
+                    'status': 'error',
+                    'message': error_msg
+                }), 500
+
         # Статический маршрут для доступа к фото
         @self.app.route('/static/photos/<path:filename>')
         def serve_photo(filename):

@@ -1053,3 +1053,21 @@ window.addEventListener('beforeunload', () => {
         streamController.destroy();
     }
 });
+
+//=================  temp =======================================
+
+// Показываем/скрываем секцию фотографий
+function togglePhotosSection(show = true) {
+    const section = document.getElementById('photos-preview-section');
+    if (section) {
+        section.style.display = show ? 'block' : 'none';
+    }
+}
+
+// Автоматически показываем секцию при загрузке
+document.addEventListener('DOMContentLoaded', function() {
+    // Показываем секцию через 2 секунды
+    setTimeout(() => {
+        togglePhotosSection(true);
+    }, 2000);
+});
