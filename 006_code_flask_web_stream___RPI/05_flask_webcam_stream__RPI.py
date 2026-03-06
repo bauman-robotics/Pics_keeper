@@ -148,20 +148,37 @@ class CameraStreamer:
         self.config = config
         self.logger = logger
         
-        # Инициализируем менеджер CSI камер
-        self.csi_manager = CSICameraManager(config, logger)
+        # # Инициализируем менеджер CSI камер
+        # self.csi_manager = CSICameraManager(config, logger)
         
+        # # Определяем тип текущей камеры
+        # if camera_info['type'] == 'csi':
+        #     self.camera_type = 'csi'            
+        #     self.current_picam2 = camera_info.get('picam2')
+        #     self.csi_manager.current_picam2 = self.current_picam2
+        #     self.csi_manager.current_camera = camera_info.get('csi_manager', {}).current_camera
+        #     self.current_v4l2_camera = None
+        # else:
+        #     self.camera_type = 'v4l2'
+        #     self.current_v4l2_camera = camera_info.get('camera')
+        #     self.current_picam2 = None
+
+
         # Определяем тип текущей камеры
         if camera_info['type'] == 'csi':
             self.camera_type = 'csi'
+            # Используем существующий csi_manager из camera_info
+            self.csi_manager = camera_info.get('csi_manager')
             self.current_picam2 = camera_info.get('picam2')
-            self.csi_manager.current_picam2 = self.current_picam2
-            self.csi_manager.current_camera = camera_info.get('csi_manager', {}).current_camera
             self.current_v4l2_camera = None
+            self.current_camera_idx = camera_info.get('camera_idx', 0)
+            
+            print(f"✅ CSI камера инициализирована: индекс {self.current_camera_idx}")
         else:
             self.camera_type = 'v4l2'
             self.current_v4l2_camera = camera_info.get('camera')
             self.current_picam2 = None
+            self.csi_manager = None            
 
         # Состояние стрима
         self.stream_active = False
@@ -341,7 +358,6 @@ class CameraStreamer:
                 time.sleep(0.5)
         
         print(f"📹 Поток захвата кадров остановлен. Всего кадров: {frames_captured}")
-
 
     def generate_from_buffer(self):
         """Генератор для получения кадров из буфера"""
@@ -758,6 +774,7 @@ class CameraStreamer:
                     'error': str(e),
                     'current_camera_type': self.camera_type
                 })
+
         
         @self.app.route('/api/cameras/select', methods=['POST'])
         def select_camera():
@@ -1338,7 +1355,7 @@ def log_all_available_cameras(logger):
         checker = CameraChecker(logger=logger)
         
         # Если у логгера есть метод для записи, используем его
-        cameras = checker.detect_cameras(max_devices=10)
+        cameras = checker.detect_cameras(max_devices=40)
         
         if not cameras:
             if hasattr(logger, 'log_warning'):
@@ -1393,7 +1410,8 @@ def main():
     
     camera_info = test_camera_backends(config, logger)
 
-    log_all_available_cameras(logger)
+    # ВРЕМЕННО ОТКЛЮЧАЕМ - вызывает конфликт с уже открытой камерой
+    log_all_available_cameras(logger)   # ← ЗАКОММЕНТИРУЙТЕ ЭТУ СТРОКУ
     
     if camera_info is None:
         logger.log_error("НЕ НАЙДЕНА РАБОЧАЯ КАМЕРА!")

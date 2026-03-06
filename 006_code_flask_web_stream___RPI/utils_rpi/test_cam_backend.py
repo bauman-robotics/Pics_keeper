@@ -48,7 +48,8 @@ def get_camera_backend(backend_name):
 
 def test_camera_backends(config, logger):
     """Тестируем разные способы открытия камеры согласно конфигурации"""
-    
+
+ 
     camera_config = config['camera']
     backend_mode = camera_config['backend'].lower()
     is_raspberry_pi = config.get('raspberry_pi', False)
@@ -57,6 +58,11 @@ def test_camera_backends(config, logger):
     device_value = camera_config['device']
     device_str = str(device_value)  # Конвертируем в строку
     
+
+    print(f"PICAMERA2_AVAILABLE = {PICAMERA2_AVAILABLE}")
+    print(f"is_raspberry_pi = {is_raspberry_pi}")
+   
+
     # Если на Raspberry Pi и доступен Picamera2, пробуем CSI камеры
     if is_raspberry_pi and PICAMERA2_AVAILABLE:
         print("\n=== Проверка CSI камер через Picamera2 ===")

@@ -132,7 +132,7 @@ class CameraChecker:
         except Exception as e:
             return {'error': f"Ошибка при проверке {device_path}: {str(e)}"}
     
-    def detect_cameras(self, max_devices: int = 10) -> List[Dict]:
+    def detect_cameras(self, max_devices: int = 40) -> List[Dict]:
         """Обнаружение видеокамер (ускоренная версия)"""
         cameras = []
         video_devices = self._find_video_devices(max_devices)

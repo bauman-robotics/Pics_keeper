@@ -112,7 +112,8 @@ class CSICameraManager:
             
             # Создаем конфигурацию для видео
             config = picam2.create_video_configuration(
-                main={"size": (width, height), "format": "RGB888"},
+                #main={"size": (width, height), "format": "RGB888"},
+                main={"size": (width, height), "format": "BGR888"},  # ← ИЗМЕНЕНО НА BGR
                 controls={"FrameRate": fps, "AwbEnable": True}
             )
             
