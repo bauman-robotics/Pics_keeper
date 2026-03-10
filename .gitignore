@@ -217,6 +217,13 @@ venv/
 
 photos/
 
+
 006_code_flask_web_stream___RPI/calibration_results_imx708_640x480/
 006_code_flask_web_stream___RPI/calibration_results_usb_type_2/
 006_code_flask_web_stream___RPI/imx708_calibr_photos/
+
+calibration_results_imx708_640x480/
+imx708_calibr_photos/
+
+006_code_flask_web_stream___RPI/test_frame_csi.jpg
+
