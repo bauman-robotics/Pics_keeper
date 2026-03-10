@@ -3,7 +3,20 @@
 AprilTag 3D Model Viewer - Привязка 3D модели к AprilTag маркеру
 Поддерживает USB и CSI камеры
 Версия с двумя окнами: видео и управление
+
+export DISPLAY=:0
+
+1. убить сессию:
+screen -X -S bird_detector quit
+
+source /home/pi/projects/Hailo8_projects/Pics_keeper/venv/bin/activate
+cd /home/pi/projects/Hailo8_projects/Pics_keeper/006_code_flask_web_stream___RPI/
+python3 32_aprilTag_pose__and_3d_model_pro_scale_save___n2_true_color_sliders_off_2_win.py
+
+deactivate
 """
+
+
 
 import cv2
 import numpy as np
