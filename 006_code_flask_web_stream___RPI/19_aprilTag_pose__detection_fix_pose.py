@@ -3,6 +3,17 @@
 Детектирование и оценка позы AprilTag маркеров (tag36h11)
 Адаптировано из скрипта для QR-кодов с сохранением структуры
 Поддерживает USB и CSI камеры (Raspberry Pi Camera Module)
+
+
+export DISPLAY=:0
+
+1. убить сессию:
+screen -X -S bird_detector quit
+
+cd /home/pi/projects/Hailo8_projects/Pics_keeper
+source venv/bin/activate
+cd 006_code_flask_web_stream___RPI/
+python3 19_aprilTag_pose__detection_fix_pose.py
 """
 
 import cv2
