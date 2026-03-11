@@ -1,11 +1,11 @@
 {
     "scale": 0.935190313826658,
-    "rot_x": 85,
-    "rot_y": 82,
-    "rot_z": 1,
+    "rot_x": 90.0,
+    "rot_y": 86.0,
+    "rot_z": 2.0,
     "offset_x": 0.05,
-    "offset_y": -0.05,
-    "offset_z": -0.01,
-    "mode": 2,
-    "timestamp": "2026-03-11 00:07:32"
+    "offset_y": -0.0496,
+    "offset_z": -0.0206,
+    "mode": 1,
+    "timestamp": "2026-03-11 10:55:33"
 }
