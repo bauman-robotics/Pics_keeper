@@ -5,11 +5,15 @@ AprilTag 3D Model Viewer - Привязка 3D модели к AprilTag марк
 Версия с двумя окнами: видео и управление
 + Уточнение позы по пересекающимся линиям на гранях усечённой пирамиды
 
+
+1. убить сессию:
+screen -X -S bird_detector quit
+
 export DISPLAY=:0
 
 source /home/pi/projects/Hailo8_projects/Pics_keeper/venv/bin/activate
 cd /home/pi/projects/Hailo8_projects/Pics_keeper/006_code_flask_web_stream___RPI/
-python3 36_aprilTag_pose_pyramid_refine.py
+python3 42_aprilTag_pose_pyramid_refine_2_line_oppozite_z.py
 
 deactivate
 """
@@ -86,7 +90,16 @@ PYRAMID_ROI_MARGIN = 4.0
 
 # Установить True для вывода промежуточных расчётов координат
 # центров пересечения линий в консольный лог
-DEBUG_PYRAMID = False
+
+DEBUG_PYRAMID = True
+DRAW_LINES = True
+DRAW_CLASSIFIED = True
+DRAW_ROI = True
+DRAW_INTERSECTIONS = True
+DEBUG_TEXT = True
+
+
+WINDOWS_CONTROL_EN = False 
 
 # ============================================================================
 # ВЫЧИСЛЕНИЕ ГЕОМЕТРИИ ПИРАМИДЫ (один раз при старте)
@@ -234,50 +247,112 @@ def compute_roi_size(pattern_size_mm, distance_m, fx):
     roi_size = min(roi_size, 300)  # максимум 300px
     return roi_size
 
+
 def detect_pyramid_corners(frame_gray, rvec, tvec, camera_matrix, dist_coeffs):
     """
     Детектирует точки пересечения линий на боковых гранях пирамиды.
-    С правильным определением направления вертикальной оси.
+    Адаптивная версия с учетом доступных линий и динамическими порогами.
     """
+    
     results = []
     h, w = frame_gray.shape[:2]
     distance_m = float(np.linalg.norm(tvec))
-    fx = camera_matrix[0, 0]
+    
+    if DEBUG_PYRAMID:
+        debug_frame = cv2.cvtColor(frame_gray, cv2.COLOR_GRAY2BGR)
+        print(f"\n{'='*60}")
+        print(f"🔍 PYRAMID CORNER DETECTION DEBUG (ADAPTIVE) - Frame {h}x{w}")
+        print(f"{'='*60}")
+        print(f"📏 Distance to marker: {distance_m:.3f}m")
+    
+    half_top = PYRAMID_TOP_SIZE / 2.0 / 1000.0
+    half_base = PYRAMID_BASE_SIZE / 2.0 / 1000.0
+    h_pyr = PYRAMID_HEIGHT / 1000.0
 
-    # Матрица поворота
-    R, _ = cv2.Rodrigues(rvec)
-
-    for face in PYRAMID_FACES:
+    for face_idx, face in enumerate(PYRAMID_FACES):
         name = face['name']
         center_3d = face['center_3d']
         normal = face['normal']
+        
+        if DEBUG_PYRAMID:
+            print(f"\n{'-'*50}")
+            print(f"🔷 FACE {face_idx+1}/4: {name}")
+            print(f"{'-'*50}")
 
         visible, dot_val = is_face_visible(normal, rvec, tvec)
-
-        # Проецируем центр грани
+        
+        # ========== ПРОЕКЦИИ ЦЕНТРА И УГЛА ==========
         center_m = (center_3d / 1000.0).reshape(1, 1, 3).astype(np.float32)
-        proj, _ = cv2.projectPoints(center_m, rvec, tvec, camera_matrix, dist_coeffs)
-        px, py = proj[0][0]
-
+        proj_center, _ = cv2.projectPoints(center_m, rvec, tvec, camera_matrix, dist_coeffs)
+        pcx, pcy = proj_center[0][0]
+        
+        # Угол находится на верхней грани (Z=0)
+        corner_3d = center_3d.copy()
+        corner_3d[2] = 0.0
+        
+        corner_m = (corner_3d / 1000.0).reshape(1, 1, 3).astype(np.float32)
+        proj_corner, _ = cv2.projectPoints(corner_m, rvec, tvec, camera_matrix, dist_coeffs)
+        p_cx, p_cy = proj_corner[0][0]
+        
+        if DEBUG_PYRAMID:
+            print(f"   📍 Проекция ЦЕНТРА: ({pcx:.1f}, {pcy:.1f})")
+            print(f"   📍 Проекция УГЛА: ({p_cx:.1f}, {p_cy:.1f})")
+            print(f"   📐 Смещение: ({p_cx-pcx:.1f}, {p_cy-pcy:.1f})px")
+        
         result_base = {
             'face': name,
             'center_3d': center_3d,
-            'corner_2d': None,
-            'proj_2d': np.array([px, py]),
+            'corner_3d': corner_3d,
+            'center_2d': None,
+            'proj_center': np.array([pcx, pcy]),
+            'proj_corner': np.array([p_cx, p_cy]),
             'reproj_err': None,
             'visible': visible,
-            'confidence': 0.0,
+            'confidence': 0.0
         }
 
         if not visible:
+            if DEBUG_PYRAMID:
+                print(f"   ⏭️ Face not visible")
             results.append(result_base)
             continue
 
-        # ========== ПРОЕЦИРУЕМ ВСЕ 4 УГЛА ГРАНИ ==========
-        half_top = PYRAMID_TOP_SIZE / 2.0 / 1000.0  # в метрах
-        half_base = PYRAMID_BASE_SIZE / 2.0 / 1000.0
-        h_pyr = PYRAMID_HEIGHT / 1000.0
+        # ========== ОПРЕДЕЛЕНИЕ НАПРАВЛЕНИЙ ==========
+        # Определяем верхнюю и нижнюю точки грани
+        if name in ['FRONT', 'BACK']:
+            top_point_3d = center_3d / 1000.0
+            bottom_point_3d = center_3d / 1000.0 + np.array([0.0, 0.0, h_pyr])
+        else:  # LEFT или RIGHT
+            top_point_3d = center_3d / 1000.0
+            bottom_point_3d = center_3d / 1000.0 + np.array([0.0, 0.0, h_pyr])
         
+        top_point_2d, _ = cv2.projectPoints(
+            np.array([top_point_3d], dtype=np.float32), 
+            rvec, tvec, camera_matrix, dist_coeffs
+        )
+        bottom_point_2d, _ = cv2.projectPoints(
+            np.array([bottom_point_3d], dtype=np.float32), 
+            rvec, tvec, camera_matrix, dist_coeffs
+        )
+        
+        top_point_2d = top_point_2d[0][0]
+        bottom_point_2d = bottom_point_2d[0][0]
+        
+        vertical_dir = bottom_point_2d - top_point_2d
+        vertical_norm = np.linalg.norm(vertical_dir)
+        
+        if vertical_norm < 1e-6:
+            results.append(result_base)
+            continue
+            
+        vertical_dir = vertical_dir / vertical_norm
+        horizontal_dir = np.array([-vertical_dir[1], vertical_dir[0]])
+
+        if DEBUG_PYRAMID:
+            print(f"   📐 Vertical direction: ({vertical_dir[0]:.3f}, {vertical_dir[1]:.3f})")
+            print(f"   📐 Horizontal direction: ({horizontal_dir[0]:.3f}, {horizontal_dir[1]:.3f})")
+
+        # ========== ПРОЕКЦИЯ УГЛОВ ГРАНИ ==========
         if name == 'FRONT':
             vertices_3d = np.array([
                 [-half_top, -half_top, 0.0],
@@ -299,7 +374,7 @@ def detect_pyramid_corners(frame_gray, rvec, tvec, camera_matrix, dist_coeffs):
                 [-half_base, half_base, h_pyr],
                 [-half_base, -half_base, h_pyr]
             ], dtype=np.float32)
-        else:  # RIGHT
+        else:
             vertices_3d = np.array([
                 [ half_top, half_top, 0.0],
                 [ half_top, -half_top, 0.0],
@@ -307,13 +382,12 @@ def detect_pyramid_corners(frame_gray, rvec, tvec, camera_matrix, dist_coeffs):
                 [ half_base, half_base, h_pyr]
             ], dtype=np.float32)
         
-        # Проецируем углы
         vertices_2d, _ = cv2.projectPoints(
             vertices_3d, rvec, tvec, camera_matrix, dist_coeffs
         )
         vertices_2d = vertices_2d.reshape(-1, 2)
         
-        # Bounding box грани
+        # ========== ВЫДЕЛЕНИЕ ROI ==========
         min_x = np.min(vertices_2d[:, 0])
         max_x = np.max(vertices_2d[:, 0])
         min_y = np.min(vertices_2d[:, 1])
@@ -321,274 +395,292 @@ def detect_pyramid_corners(frame_gray, rvec, tvec, camera_matrix, dist_coeffs):
         
         face_width = max_x - min_x
         face_height = max_y - min_y
-        margin_x = face_width * 0.3
-        margin_y = face_height * 0.3
+        
+        # Адаптивный отступ в зависимости от размера грани
+        margin_x = max(face_width * 0.4, 30)
+        margin_y = max(face_height * 0.4, 30)
         
         x1 = max(int(min_x - margin_x), 0)
         y1 = max(int(min_y - margin_y), 0)
         x2 = min(int(max_x + margin_x), w)
         y2 = min(int(max_y + margin_y), h)
         
-        if (x2 - x1) < 40 or (y2 - y1) < 40:
-            results.append(result_base)
-            continue
-        
         roi = frame_gray[y1:y2, x1:x2]
         
-        # ========== ОПРЕДЕЛЕНИЕ НАПРАВЛЕНИЙ ЛИНИЙ ==========
+        if DEBUG_PYRAMID:
+            print(f"   📦 ROI: ({x1},{y1})-({x2},{y2}) size {roi.shape[1]}x{roi.shape[0]}")
+            cv2.rectangle(debug_frame, (x1, y1), (x2, y2), (255, 255, 0), 1)
+            cv2.putText(debug_frame, name, (x1, y1-5), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 0), 1)
+            # Рисуем проекции
+            cv2.circle(debug_frame, (int(pcx), int(pcy)), 4, (0, 255, 255), -1)  # Центр - желтый
+            cv2.circle(debug_frame, (int(p_cx), int(p_cy)), 4, (255, 0, 255), -1)  # Угол - розовый
+
+        if roi.size == 0 or roi.shape[0] < 20 or roi.shape[1] < 20:
+            results.append(result_base)
+            continue
+
+        # ========== УЛУЧШЕННАЯ БИНАРИЗАЦИЯ ==========
+        # Пробуем разные методы бинаризации
+        binary_methods = []
         
-        # Базовая ориентация в 3D (в системе координат маркера)
-        if name == 'FRONT' or name == 'BACK':
-            # Для FRONT/BACK: горизонталь вдоль X, вертикаль вдоль Z
-            horizontal_dir_3d = np.array([1.0, 0.0, 0.0])
-            vertical_dir_3d = np.array([0.0, 0.0, 1.0])
+        # Метод 1: Адаптивный порог
+        binary1 = cv2.adaptiveThreshold(roi, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                       cv2.THRESH_BINARY_INV, 15, 3)
+        binary_methods.append(binary1)
+        
+        # Метод 2: Простой порог по Otsu
+        _, binary2 = cv2.threshold(roi, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        binary_methods.append(binary2)
+        
+        # Метод 3: Морфологическое выделение линий
+        kernel_h = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 3))
+        kernel_v = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 15))
+        morph_h = cv2.morphologyEx(roi, cv2.MORPH_TOPHAT, kernel_h)
+        morph_v = cv2.morphologyEx(roi, cv2.MORPH_TOPHAT, kernel_v)
+        morph = cv2.addWeighted(morph_h, 0.5, morph_v, 0.5, 0)
+        _, binary3 = cv2.threshold(morph, 20, 255, cv2.THRESH_BINARY)
+        binary_methods.append(binary3)
+        
+        # Выбираем метод с наибольшим количеством линий
+        best_binary = None
+        max_lines = 0
+        
+        for i, binary in enumerate(binary_methods):
+            # Морфологическая чистка
+            kernel = np.ones((2,2), np.uint8)
+            binary_clean = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel, iterations=1)
             
-            # Точки для проверки вертикального направления
-            top_point_3d = center_3d / 1000.0  # верх грани (Z=0)
-            bottom_point_3d = center_3d / 1000.0 + np.array([0.0, 0.0, h_pyr])  # низ грани (Z=h_pyr)
-        else:  # LEFT или RIGHT
-            # Для LEFT/RIGHT: горизонталь вдоль Y, вертикаль вдоль Z
-            horizontal_dir_3d = np.array([0.0, 1.0, 0.0])
-            vertical_dir_3d = np.array([0.0, 0.0, 1.0])
+            # Быстрый поиск линий для оценки
+            test_lines = cv2.HoughLines(binary_clean, 1, np.pi/180, 40)
+            if test_lines is not None:
+                if len(test_lines) > max_lines:
+                    max_lines = len(test_lines)
+                    best_binary = binary_clean
+        
+        if best_binary is None:
+            if DEBUG_PYRAMID:
+                print(f"   ❌ Не удалось получить бинарное изображение")
+            results.append(result_base)
+            continue
+        
+        binary = best_binary
+        
+        # ========== ПОИСК ЛИНИЙ ==========
+        # Адаптивный порог для HoughLines
+        hough_threshold = max(30, int(50 * (1.0 - distance_m * 0.5)))
+        lines = cv2.HoughLines(binary, 1, np.pi/180, hough_threshold)
+        
+        if lines is None:
+            if DEBUG_PYRAMID:
+                print(f"   ❌ ЛИНИЙ НЕ НАЙДЕНО")
+            results.append(result_base)
+            continue
+        
+        total_lines = len(lines)
+        
+        # ========== КЛАССИФИКАЦИЯ ЛИНИЙ ==========
+        horizontal_lines = []
+        vertical_lines = []
+        all_lines = []
+        
+        # Динамический порог в зависимости от количества линий
+        angle_threshold = 15.0  # Базовый порог
+        
+        for line in lines[:200]:  # Ограничиваем для скорости
+            rho, theta = line[0]
+            angle = theta * 180 / np.pi
             
-            top_point_3d = center_3d / 1000.0
-            bottom_point_3d = center_3d / 1000.0 + np.array([0.0, 0.0, h_pyr])
-        
-        # Проецируем верхнюю и нижнюю точки для определения направления вертикали
-        top_point_2d, _ = cv2.projectPoints(
-            np.array([top_point_3d], dtype=np.float32), 
-            rvec, tvec, camera_matrix, dist_coeffs
-        )
-        bottom_point_2d, _ = cv2.projectPoints(
-            np.array([bottom_point_3d], dtype=np.float32), 
-            rvec, tvec, camera_matrix, dist_coeffs
-        )
-        
-        top_point_2d = top_point_2d[0][0]
-        bottom_point_2d = bottom_point_2d[0][0]
-        
-        # Вектор вертикали на изображении
-        vertical_dir_2d_observed = bottom_point_2d - top_point_2d
-        
-        # Нормализуем
-        vertical_dir_2d_observed = vertical_dir_2d_observed / np.linalg.norm(vertical_dir_2d_observed)
+            # Направление линии в 2D
+            line_dir = np.array([np.cos(theta), np.sin(theta)])
+            
+            # Сходство с ожидаемыми направлениями
+            h_sim = abs(np.dot(line_dir, horizontal_dir))
+            v_sim = abs(np.dot(line_dir, vertical_dir))
+            
+            line_info = {
+                'rho': rho,
+                'theta': theta,
+                'angle': angle,
+                'h_sim': h_sim,
+                'v_sim': v_sim
+            }
+            all_lines.append(line_info)
+            
+            # Классификация по сходству с направлениями
+            if h_sim > 0.7:  # Близко к горизонтальному направлению
+                horizontal_lines.append(line_info)
+            elif v_sim > 0.7:  # Близко к вертикальному направлению
+                vertical_lines.append(line_info)
         
         if DEBUG_PYRAMID:
-            print(f"  Face {name}: vertical direction = ({vertical_dir_2d_observed[0]:.2f}, {vertical_dir_2d_observed[1]:.2f})")
+            print(f"   ✅ Найдено линий: {total_lines}")
+            print(f"   📊 Горизонтальных: {len(horizontal_lines)}")
+            print(f"   📊 Вертикальных: {len(vertical_lines)}")
         
-        # ========== ПОИСК ЛИНИЙ С ПРАВИЛЬНЫМИ НАПРАВЛЕНИЯМИ ==========
-        
-        # Предобработка
-        roi_blur = cv2.GaussianBlur(roi, (5, 5), 0)
-        edges = cv2.Canny(roi_blur, 50, 150, apertureSize=3)
-        
-        # Поиск линий через преобразование Хафа
-        lines = cv2.HoughLinesP(
-            edges, 
-            rho=1, 
-            theta=np.pi/180, 
-            threshold=30,
-            minLineLength=roi.shape[1] // 4,
-            maxLineGap=10
-        )
-        
-        if lines is None or len(lines) < 4:
+        # Если мало линий одного типа, пробуем более мягкие пороги
+        if len(horizontal_lines) < 3:
+            horizontal_lines = []
+            for line_info in all_lines:
+                if line_info['h_sim'] > 0.5:  # Более мягкий порог
+                    horizontal_lines.append(line_info)
             if DEBUG_PYRAMID:
-                print(f"  Face {name}: not enough lines found")
+                print(f"   📊 После мягкого порога горизонтальных: {len(horizontal_lines)}")
+        
+        if len(vertical_lines) < 3:
+            vertical_lines = []
+            for line_info in all_lines:
+                if line_info['v_sim'] > 0.5:  # Более мягкий порог
+                    vertical_lines.append(line_info)
+            if DEBUG_PYRAMID:
+                print(f"   📊 После мягкого порога вертикальных: {len(vertical_lines)}")
+        
+        if len(horizontal_lines) < 2 or len(vertical_lines) < 2:
+            if DEBUG_PYRAMID:
+                print(f"   ❌ Недостаточно линий нужной ориентации")
             results.append(result_base)
             continue
         
-        # Классифицируем линии
-        lines_list = lines[:, 0, :]
+        # ========== ПОИСК ЛУЧШЕГО ПЕРЕСЕЧЕНИЯ ==========
+        # Координаты проекции УГЛА в ROI
+        proj_roi_x = p_cx - x1
+        proj_roi_y = p_cy - y1
         
-        # Для каждой линии вычисляем направление и центр
-        horizontal_candidates = []
-        vertical_candidates = []
+        # Проверяем, что проекция угла внутри ROI
+        if (proj_roi_x < 0 or proj_roi_x >= roi.shape[1] or 
+            proj_roi_y < 0 or proj_roi_y >= roi.shape[0]):
+            if DEBUG_PYRAMID:
+                print(f"   ⚠️ Проекция угла вне ROI")
+            # Используем центр ROI как запасной вариант
+            proj_roi_x = roi.shape[1] / 2
+            proj_roi_y = roi.shape[0] / 2
         
-        for line in lines_list:
-            x1_l, y1_l, x2_l, y2_l = line
-            
-            # Направление линии
-            dx = x2_l - x1_l
-            dy = y2_l - y1_l
-            length = np.sqrt(dx*dx + dy*dy)
-            
-            if length < 10:
-                continue
+        best_intersection = None
+        best_score = -1
+        intersections_checked = 0
+        
+        # Сортируем линии по качеству
+        horizontal_lines.sort(key=lambda x: x['h_sim'], reverse=True)
+        vertical_lines.sort(key=lambda x: x['v_sim'], reverse=True)
+        
+        # Берем топ-10 каждого типа
+        for h_line in horizontal_lines[:10]:
+            for v_line in vertical_lines[:10]:
+                rho_h, theta_h = h_line['rho'], h_line['theta']
+                rho_v, theta_v = v_line['rho'], v_line['theta']
                 
-            dir_vec = np.array([dx, dy]) / length
-            
-            # Центр линии
-            center_x = (x1_l + x2_l) / 2
-            center_y = (y1_l + y2_l) / 2
-            
-            # Проверяем, насколько линия соответствует ожидаемым направлениям
-            
-            # Для горизонтали: сравниваем с горизонтальным направлением в 3D
-            # Горизонтальное направление в 2D - перпендикулярно вертикали
-            horizontal_dir_2d = np.array([-vertical_dir_2d_observed[1], vertical_dir_2d_observed[0]])
-            
-            # Вычисляем сходство с горизонталью (скалярное произведение)
-            h_similarity = abs(np.dot(dir_vec, horizontal_dir_2d))
-            
-            # Вычисляем сходство с вертикалью
-            v_similarity = abs(np.dot(dir_vec, vertical_dir_2d_observed))
-            
-            # Классифицируем
-            if h_similarity > 0.7:  # порог для горизонтали
-                horizontal_candidates.append({
-                    'line': line,
-                    'center': (center_x, center_y),
-                    'similarity': h_similarity
-                })
-            elif v_similarity > 0.7:  # порог для вертикали
-                vertical_candidates.append({
-                    'line': line,
-                    'center': (center_x, center_y),
-                    'similarity': v_similarity
-                })
-        
-        if len(horizontal_candidates) == 0 or len(vertical_candidates) == 0:
-            if DEBUG_PYRAMID:
-                print(f"  Face {name}: missing line orientations (h={len(horizontal_candidates)}, v={len(vertical_candidates)})")
-            results.append(result_base)
-            continue
-        
-        # Выбираем лучшие линии (ближайшие к центру ROI)
-        roi_center_x = roi.shape[1] / 2
-        roi_center_y = roi.shape[0] / 2
-        
-        # Для горизонтальных линий: сортируем по расстоянию до центра по Y
-        horizontal_candidates.sort(key=lambda c: abs(c['center'][1] - roi_center_y))
-        # Для вертикальных линий: сортируем по расстоянию до центра по X
-        vertical_candidates.sort(key=lambda c: abs(c['center'][0] - roi_center_x))
-        
-        best_horizontal = horizontal_candidates[0]['line']
-        best_vertical = vertical_candidates[0]['line']
-        
-        # Находим пересечение
-        # Находим пересечение двух линий
-        x1_h, y1_h, x2_h, y2_h = best_horizontal
-        x1_v, y1_v, x2_v, y2_v = best_vertical
-
-        # Параметры линий
-        a_h = y2_h - y1_h
-        b_h = x1_h - x2_h
-        c_h = x2_h * y1_h - x1_h * y2_h
-
-        a_v = y2_v - y1_v
-        b_v = x1_v - x2_v
-        c_v = x2_v * y1_v - x1_v * y2_v
-
-        det = a_h * b_v - a_v * b_h
-        if abs(det) < 1e-6:
-            if DEBUG_PYRAMID:
-                print(f"  Face {name}: lines are parallel")
-            results.append(result_base)
-            continue
-
-        # Точка пересечения в ROI
-        cx_roi = (b_h * c_v - b_v * c_h) / det
-        cy_roi = (c_h * a_v - c_v * a_h) / det
-
-        # ========== ВАЖНО: ПРОВЕРКА ГРАНИЦ ==========
-        # Проверяем, что точка внутри ROI с запасом
-        margin = 5  # пикселей отступа
-        roi_h, roi_w = roi.shape[:2]
-
-        if (cx_roi < margin or cx_roi >= roi_w - margin or 
-            cy_roi < margin or cy_roi >= roi_h - margin):
-            if DEBUG_PYRAMID:
-                print(f"  Face {name}: intersection near boundary ({cx_roi:.1f}, {cy_roi:.1f}) in ROI {roi_w}x{roi_h}")
-            
-            # Пробуем скорректировать точку, если она недалеко за границей
-            cx_roi = np.clip(cx_roi, margin, roi_w - margin - 1)
-            cy_roi = np.clip(cy_roi, margin, roi_h - margin - 1)
-            
-            # Проверяем снова после клиппинга
-            if cx_roi < margin or cx_roi >= roi_w - margin:
-                results.append(result_base)
-                continue
-
-        # Субпиксельное уточнение с проверкой
-        try:
-            candidate = np.array([[[cx_roi, cy_roi]]], dtype=np.float32)
-            
-            # Дополнительная проверка для cornerSubPix
-            if (cx_roi < 0 or cx_roi >= roi_w or 
-                cy_roi < 0 or cy_roi >= roi_h):
-                if DEBUG_PYRAMID:
-                    print(f"  Face {name}: candidate out of bounds")
-                results.append(result_base)
-                continue
-            
-            corners_subpix = cv2.cornerSubPix(
-                roi,
-                candidate,
-                winSize=(11, 11),  # Уменьшаем размер окна для большей надежности
-                zeroZone=(-1, -1),
-                criteria=(cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
-            )
-            
-            corner_roi = corners_subpix[0][0]
-            
-            # Проверяем результат субпиксельного уточнения
-            if (corner_roi[0] < 0 or corner_roi[0] >= roi_w or 
-                corner_roi[1] < 0 or corner_roi[1] >= roi_h):
-                if DEBUG_PYRAMID:
-                    print(f"  Face {name}: subpix result out of bounds")
-                results.append(result_base)
-                continue
+                a_h = np.cos(theta_h)
+                b_h = np.sin(theta_h)
+                x0_h = a_h * rho_h
+                y0_h = b_h * rho_h
                 
-        except cv2.error as e:
+                a_v = np.cos(theta_v)
+                b_v = np.sin(theta_v)
+                x0_v = a_v * rho_v
+                y0_v = b_v * rho_v
+                
+                det = a_h * b_v - a_v * b_h
+                if abs(det) < 1e-6:
+                    continue
+                
+                x = (b_v * x0_h - b_h * x0_v) / det
+                y = (a_h * y0_v - a_v * y0_h) / det
+                
+                intersections_checked += 1
+                
+                # Проверка границ с адаптивным отступом
+                margin = max(5, int(roi.shape[0] * 0.02))
+                if (x < margin or x >= roi.shape[1] - margin or 
+                    y < margin or y >= roi.shape[0] - margin):
+                    continue
+                
+                # Оценка качества пересечения
+                dist_to_proj = np.sqrt((x - proj_roi_x)**2 + (y - proj_roi_y)**2)
+                max_dist = np.sqrt(roi.shape[0]**2 + roi.shape[1]**2) / 2
+                dist_score = 1.0 - min(1.0, dist_to_proj / max_dist)
+                
+                # Учитываем качество линий
+                quality_score = (h_line['h_sim'] + v_line['v_sim']) / 2
+                
+                # Комбинированная оценка
+                score = dist_score * 0.6 + quality_score * 0.4
+                
+                if score > best_score:
+                    best_score = score
+                    best_intersection = (x, y)
+        
+        if DEBUG_PYRAMID:
+            print(f"   🔍 Проверено пересечений: {intersections_checked}")
+        
+        if best_intersection is None:
             if DEBUG_PYRAMID:
-                print(f"  Face {name}: cornerSubPix error: {e}")
+                print(f"   ❌ Нет валидных пересечений")
             results.append(result_base)
             continue
         
-        # Субпиксельное уточнение
-        candidate = np.array([[[cx_roi, cy_roi]]], dtype=np.float32)
-        corners_subpix = cv2.cornerSubPix(
-            roi,
-            candidate,
-            winSize=(11, 11),
-            zeroZone=(-1, -1),
-            criteria=(cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
-        )
+        x_roi, y_roi = best_intersection
+        corner_full = np.array([x_roi + x1, y_roi + y1], dtype=np.float32)
         
-        corner_roi = corners_subpix[0][0]
-        corner_full = np.array(
-            [corner_roi[0] + x1, corner_roi[1] + y1],
-            dtype=np.float32
-        )
+        # Ошибка репроекции относительно УГЛА
+        reproj_err = float(np.linalg.norm(corner_full - np.array([p_cx, p_cy])))
         
-        # Репроекционная ошибка
-        reproj_err = float(np.linalg.norm(corner_full - np.array([px, py])))
+        if DEBUG_PYRAMID:
+            print(f"   ✅ Найдено пересечение: ({corner_full[0]:.1f}, {corner_full[1]:.1f})")
+            print(f"   📏 Ошибка репроекции (к углу): {reproj_err:.1f}px")
+            cv2.circle(debug_frame, (int(corner_full[0]), int(corner_full[1])), 
+                      6, (0, 255, 255), -1)
+            cv2.line(debug_frame, (int(p_cx), int(p_cy)), 
+                    (int(corner_full[0]), int(corner_full[1])), (255, 255, 255), 1)
         
-        if reproj_err > PYRAMID_REPROJ_THRESHOLD * (1.0 + distance_m):
+        # Динамический порог в зависимости от расстояния
+        base_threshold = PYRAMID_REPROJ_THRESHOLD
+        distance_factor = 1.0 + distance_m * 2.0
+        size_factor = max(1.0, 100.0 / min(roi.shape[0], roi.shape[1]))
+        max_allowed_error = base_threshold * distance_factor * size_factor
+        
+        if reproj_err > max_allowed_error:
             if DEBUG_PYRAMID:
-                print(f"  Face {name}: reproj_err={reproj_err:.1f}px")
+                print(f"   ❌ Ошибка превышает порог {max_allowed_error:.1f}px")
             results.append(result_base)
             continue
         
-        # Уверенность
-        confidence = min(1.0, 
-                        (len(horizontal_candidates) + len(vertical_candidates)) / 10.0 *
-                        (1.0 - reproj_err / (PYRAMID_REPROJ_THRESHOLD * 2)))
+        # Расчет уверенности
+        line_score = min(1.0, (len(horizontal_lines) + len(vertical_lines)) / 30.0)
+        error_score = 1.0 - min(1.0, reproj_err / max_allowed_error)
+        confidence = (line_score * 0.3 + error_score * 0.7) * best_score
+        confidence = max(0.3, min(1.0, confidence))
+        
+        if DEBUG_PYRAMID:
+            print(f"   ✅ УСПЕХ! Уверенность: {confidence:.2f}")
         
         result = result_base.copy()
-        result['corner_2d'] = corner_full
+        result['center_2d'] = corner_full
         result['reproj_err'] = reproj_err
-        result['confidence'] = max(0.3, confidence)
-        
-        if DEBUG_PYRAMID:
-            print(f"  Face {name}: FOUND at ({corner_full[0]:.1f},{corner_full[1]:.1f}), "
-                  f"conf={confidence:.2f}")
-        
+        result['confidence'] = confidence
         results.append(result)
+        
+        # Рисуем результат на отладке
+        if DEBUG_PYRAMID:
+            cv2.putText(debug_frame, f"{confidence:.2f}", 
+                       (int(corner_full[0])+10, int(corner_full[1])-10),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
+    
+    if DEBUG_PYRAMID:
+        found = sum(1 for r in results if r['center_2d'] is not None)
+        print(f"\n{'='*60}")
+        print(f"📊 ИТОГОВАЯ СТАТИСТИКА:")
+        print(f"   Найдено углов: {found}/4")
+        for r in results:
+            if r['center_2d'] is not None:
+                print(f"   {r['face']}: ошибка {r['reproj_err']:.1f}px, уверенность {r['confidence']:.2f}")
+        print(f"{'='*60}")
+        
+        cv2.imshow('Pyramid Debug - Main', debug_frame)
+        cv2.waitKey(1)
+        return results, debug_frame
     
     return results
-    
+
 # ============================================================================
 # УТОЧНЕНИЕ ПОЗЫ С ДОПОЛНИТЕЛЬНЫМИ ТОЧКАМИ
 # ============================================================================
@@ -613,9 +705,11 @@ def refine_pose_with_pyramid_corners(
     for r in pyramid_results:
         # Используем только точки с высокой уверенностью, если доступно
         confidence = r.get('confidence', 1.0) if isinstance(r, dict) else 1.0
-        if r['corner_2d'] is not None and confidence > 0.3:  # Порог уверенности
+        
+        # ИСПРАВЛЕНИЕ: используем center_2d вместо corner_2d
+        if r.get('center_2d') is not None and confidence > 0.3:  # Порог уверенности
             extra_obj.append(r['center_3d'] / 1000.0)  # мм → метры
-            extra_img.append(r['corner_2d'])
+            extra_img.append(r['center_2d'])
             weights.append(confidence)
 
     n_extra = len(extra_obj)
@@ -1046,38 +1140,191 @@ def resize_frame_to_display(frame, target_width, target_height):
 def draw_pyramid_corners(frame, pyramid_results, rvec, tvec, camera_matrix, dist_coeffs):
     """
     Отрисовывает на кадре проекции центров граней и найденные точки пересечения линий.
+    
+    Параметры:
+        frame - изображение для отрисовки (BGR)
+        pyramid_results - результаты от detect_pyramid_corners
+        rvec, tvec - поза маркера
+        camera_matrix, dist_coeffs - параметры камеры
     """
+    # ========== МАКРОСЫ ДЛЯ ОТЛАДКИ ==========
+    # Определите эти переменные перед вызовом функции
+    # По умолчанию все выключено, включает через DEBUG_PYRAMID
+    DRAW_LINES = hasattr(__builtins__, 'DEBUG_PYRAMID') and DEBUG_PYRAMID or False
+    DRAW_CLASSIFIED = hasattr(__builtins__, 'DEBUG_PYRAMID') and DEBUG_PYRAMID or False
+    DRAW_ROI = hasattr(__builtins__, 'DEBUG_PYRAMID') and DEBUG_PYRAMID or False
+    DRAW_INTERSECTIONS = hasattr(__builtins__, 'DEBUG_PYRAMID') and DEBUG_PYRAMID or False
+    DEBUG_TEXT = hasattr(__builtins__, 'DEBUG_PYRAMID') and DEBUG_PYRAMID or False
+    
     face_colors = {
         'FRONT': (0,   255, 255),   # жёлтый
-        'BACK':  (255, 128, 0  ),   # голубой
+        'BACK':  (255, 128, 0  ),   # оранжевый
         'LEFT':  (0,   255, 0  ),   # зелёный
         'RIGHT': (128, 0,   255),   # фиолетовый
     }
+    
+    # Цвета для отладки
+    debug_colors = {
+        'roi': (255, 255, 0),        # Голубой
+        'horizontal': (0, 0, 255),   # Красный
+        'vertical': (0, 255, 0),      # Зелёный
+        'other': (100, 100, 100),     # Серый
+        'intersection': (255, 0, 255) # Розовый
+    }
 
-    for r in pyramid_results:
-        color = face_colors.get(r['face'], (200, 200, 200))
-        px, py = int(r['proj_2d'][0]), int(r['proj_2d'][1])
+    # ПРОВЕРКА: pyramid_results должен быть списком
+    if not isinstance(pyramid_results, list):
+        print(f"WARNING: pyramid_results is not a list: {type(pyramid_results)}")
+        return
 
-        # Проецированный центр грани — пунктирный круг
-        if 0 <= px < frame.shape[1] and 0 <= py < frame.shape[0]:
-            cv2.circle(frame, (px, py), 8, color, 1)
-            cv2.drawMarker(frame, (px, py), color,
-                           cv2.MARKER_CROSS, 12, 1, cv2.LINE_AA)
-            # Подпись грани
-            cv2.putText(frame, r['face'][0],  # первая буква названия
-                        (px+10, py-5), cv2.FONT_HERSHEY_SIMPLEX,
-                        0.4, color, 1, cv2.LINE_AA)
-
-        # Найденная субпиксельная точка — закрашенный круг (только если точка найдена)
-        if r['corner_2d'] is not None:
-            cx, cy = int(r['corner_2d'][0]), int(r['corner_2d'][1])
-            if 0 <= cx < frame.shape[1] and 0 <= cy < frame.shape[0]:
-                cv2.circle(frame, (cx, cy), 5, color, -1)
-                cv2.circle(frame, (cx, cy), 7, (255, 255, 255), 1)
-                # Линия от проекции к найденной точке
-                if 0 <= px < frame.shape[1] and 0 <= py < frame.shape[0]:
-                    cv2.line(frame, (px, py), (cx, cy), color, 1, cv2.LINE_AA)
-
+    for i, r in enumerate(pyramid_results):
+        # ПРОВЕРКА: каждый элемент должен быть словарем
+        if not isinstance(r, dict):
+            print(f"WARNING: pyramid_results[{i}] is not a dict: {type(r)}")
+            continue
+            
+        # Получаем название грани (с проверкой)
+        face_name = r.get('face', f"UNKNOWN_{i}")
+        color = face_colors.get(face_name, (200, 200, 200))
+        
+        # ===== ПРОЕКЦИЯ ЦЕНТРА ГРАНИ =====
+        if 'proj_2d' in r:
+            px, py = int(r['proj_2d'][0]), int(r['proj_2d'][1])
+            if 0 <= px < frame.shape[1] and 0 <= py < frame.shape[0]:
+                # Проецированный центр грани — круг с крестом
+                cv2.circle(frame, (px, py), 8, color, 1)
+                cv2.drawMarker(frame, (px, py), color,
+                              cv2.MARKER_CROSS, 12, 1, cv2.LINE_AA)
+                
+                if DEBUG_TEXT:
+                    cv2.putText(frame, f"{face_name}_proj",
+                              (px+10, py-5), cv2.FONT_HERSHEY_SIMPLEX,
+                              0.4, color, 1, cv2.LINE_AA)
+        
+        # ===== ОТРИСОВКА ROI =====
+        if DRAW_ROI and 'debug_info' in r and r['debug_info'] is not None:
+            debug_info = r['debug_info']
+            if 'roi' in debug_info:
+                x1, y1, x2, y2 = debug_info['roi']
+                cv2.rectangle(frame, (x1, y1), (x2, y2), debug_colors['roi'], 1)
+                if DEBUG_TEXT:
+                    cv2.putText(frame, f"{face_name}_ROI", (x1, y1-5),
+                              cv2.FONT_HERSHEY_SIMPLEX, 0.4, debug_colors['roi'], 1)
+        
+        # ===== ОТРИСОВКА ВСЕХ НАЙДЕННЫХ ЛИНИЙ =====
+        if DRAW_LINES and 'debug_info' in r and r['debug_info'] is not None:
+            debug_info = r['debug_info']
+            if 'all_lines' in debug_info:
+                for line_info in debug_info['all_lines']:
+                    x1_l, y1_l, x2_l, y2_l = line_info['coords']
+                    
+                    # Определяем цвет линии
+                    if DRAW_CLASSIFIED:
+                        if line_info.get('h_sim', 0) > 0.6:
+                            line_color = debug_colors['horizontal']
+                        elif line_info.get('v_sim', 0) > 0.6:
+                            line_color = debug_colors['vertical']
+                        else:
+                            line_color = debug_colors['other']
+                    else:
+                        line_color = debug_colors['other']
+                    
+                    # Рисуем линию
+                    cv2.line(frame, 
+                            (int(x1_l), int(y1_l)), 
+                            (int(x2_l), int(y2_l)), 
+                            line_color, 1)
+        
+        # ===== ОТРИСОВКА ЛУЧШИХ ЛИНИЙ =====
+        if DRAW_CLASSIFIED and 'debug_info' in r and r['debug_info'] is not None:
+            debug_info = r['debug_info']
+            
+            # Рисуем лучшую горизонтальную линию (если есть)
+            if 'best_horizontal' in debug_info:
+                h_line = debug_info['best_horizontal']
+                x1_h, y1_h, x2_h, y2_h = h_line
+                cv2.line(frame, 
+                        (int(x1_h), int(y1_h)), 
+                        (int(x2_h), int(y2_h)), 
+                        debug_colors['horizontal'], 2)
+            
+            # Рисуем лучшую вертикальную линию (если есть)
+            if 'best_vertical' in debug_info:
+                v_line = debug_info['best_vertical']
+                x1_v, y1_v, x2_v, y2_v = v_line
+                cv2.line(frame, 
+                        (int(x1_v), int(y1_v)), 
+                        (int(x2_v), int(y2_v)), 
+                        debug_colors['vertical'], 2)
+        
+        # ===== ОТРИСОВКА ТОЧКИ ПЕРЕСЕЧЕНИЯ =====
+        if DRAW_INTERSECTIONS and 'debug_info' in r and r['debug_info'] is not None:
+            debug_info = r['debug_info']
+            if 'intersection_roi' in debug_info:
+                ix, iy = debug_info['intersection_roi']
+                # Если есть информация о ROI, переводим в глобальные координаты
+                if 'roi' in debug_info:
+                    x1, y1, _, _ = debug_info['roi']
+                    ix_global = int(ix + x1)
+                    iy_global = int(iy + y1)
+                else:
+                    ix_global = int(ix)
+                    iy_global = int(iy)
+                
+                # Рисуем точку пересечения
+                cv2.circle(frame, (ix_global, iy_global), 4, 
+                          debug_colors['intersection'], -1)
+                cv2.circle(frame, (ix_global, iy_global), 6, 
+                          (255, 255, 255), 1)
+        
+        # ===== ИСПРАВЛЕНИЕ: Безопасное получение центра =====
+        # Не используем or с массивами! Проверяем каждый ключ отдельно
+        center_2d = None
+        if 'center_2d' in r and r['center_2d'] is not None:
+            center_2d = r['center_2d']
+        elif 'corner_2d' in r and r['corner_2d'] is not None:
+            center_2d = r['corner_2d']
+            
+        if center_2d is not None:
+            # Убеждаемся, что это массив с нужной формой
+            try:
+                cx, cy = int(center_2d[0]), int(center_2d[1])
+                if 0 <= cx < frame.shape[1] and 0 <= cy < frame.shape[0]:
+                    # Найденный центр — закрашенный круг
+                    cv2.circle(frame, (cx, cy), 5, color, -1)
+                    cv2.circle(frame, (cx, cy), 7, (255, 255, 255), 1)
+                    
+                    # Линия от проекции к найденной точке
+                    if 'proj_2d' in r:
+                        px, py = int(r['proj_2d'][0]), int(r['proj_2d'][1])
+                        if 0 <= px < frame.shape[1] and 0 <= py < frame.shape[0]:
+                            cv2.line(frame, (px, py), (cx, cy), color, 1, cv2.LINE_AA)
+                    
+                    # Отображаем уверенность
+                    if DEBUG_TEXT and 'confidence' in r:
+                        conf = r['confidence']
+                        cv2.putText(frame, f"{face_name}:{conf:.2f}",
+                                  (cx+10, cy-10), cv2.FONT_HERSHEY_SIMPLEX,
+                                  0.4, color, 1, cv2.LINE_AA)
+            except (IndexError, TypeError, ValueError) as e:
+                # Если координаты не в правильном формате, просто пропускаем
+                if DEBUG_PYRAMID:
+                    print(f"   Error drawing center for {face_name}: {e}")
+                pass
+        
+        # ===== ДОПОЛНИТЕЛЬНАЯ ОТЛАДОЧНАЯ ИНФОРМАЦИЯ =====
+        if DEBUG_TEXT and 'debug_info' in r and r['debug_info'] is not None:
+            debug_info = r['debug_info']
+            y_offset = 20
+            if 'lines_found' in debug_info:
+                text = f"{face_name}: {debug_info['lines_found']} lines"
+                cv2.putText(frame, text, (10, y_offset),
+                          cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+                y_offset += 15
+            if 'horizontal' in debug_info and 'vertical' in debug_info:
+                text = f"  H:{debug_info['horizontal']} V:{debug_info['vertical']}"
+                cv2.putText(frame, text, (10, y_offset),
+                          cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
 
 # ============================================================================
 # ГЛАВНАЯ ФУНКЦИЯ
@@ -1454,26 +1701,55 @@ def main():
                     print(f"\n[PYRAMID DEBUG] Frame {frame_count}:")
 
                 # Детектируем точки пересечения линий на гранях
-                pyramid_results_cache = detect_pyramid_corners(
+                detection_result = detect_pyramid_corners(
                     gray, target_rvec, target_tvec, camera_matrix, dist_coeffs
                 )
+                
+                # ===== ВАЖНО: Обработка возвращаемого значения =====
+                if DEBUG_PYRAMID:
+                    # В режиме отладки функция возвращает (results, debug_frame)
+                    if isinstance(detection_result, tuple) and len(detection_result) == 2:
+                        pyramid_results_cache, debug_frame = detection_result
+                        # Показываем отладочное окно
+                        cv2.imshow('Pyramid Debug', debug_frame)
+                    else:
+                        # Если что-то пошло не так
+                        pyramid_results_cache = detection_result
+                        if DEBUG_PYRAMID:
+                            print(f"⚠️ Warning: Expected tuple from detect_pyramid_corners, got {type(detection_result)}")
+                else:
+                    # В обычном режиме функция возвращает только results
+                    pyramid_results_cache = detection_result
+                
+                # ===== Подсчёт найденных точек (безопасная версия) =====
+                n_pyramid_found = 0
+                if isinstance(pyramid_results_cache, list):
+                    for r in pyramid_results_cache:
+                        if isinstance(r, dict):
+                            # Проверяем оба возможных имени поля
+                            if r.get('center_2d') is not None or r.get('corner_2d') is not None:
+                                n_pyramid_found += 1
+                
+                if DEBUG_PYRAMID:
+                    print(f"   Found {n_pyramid_found}/4 centers")
 
-                # Подсчёт найденных точек
-                n_pyramid_found = sum(1 for r in pyramid_results_cache
-                                      if r['corner_2d'] is not None)
+                # Уточняем позу (передаем только список результатов)
+                if n_pyramid_found >= 2:  # Уточняем только если есть минимум 2 точки
+                    (target_rvec, target_tvec,
+                     n_used, reproj_before, reproj_after) = refine_pose_with_pyramid_corners(
+                        target_rvec, target_tvec,
+                        apriltag_obj_pts,
+                        target_img_corners,
+                        pyramid_results_cache,  # Передаем только список результатов
+                        camera_matrix, dist_coeffs
+                    )
+                    refine_reproj_info = (reproj_before, reproj_after)
+                else:
+                    refine_reproj_info = (None, None)
+                    if DEBUG_PYRAMID:
+                        print(f"   ⏭️ Not enough points for refinement ({n_pyramid_found}/2)")
 
-                # Уточняем позу
-                (target_rvec, target_tvec,
-                 n_used, reproj_before, reproj_after) = refine_pose_with_pyramid_corners(
-                    target_rvec, target_tvec,
-                    apriltag_obj_pts,
-                    target_img_corners,
-                    pyramid_results_cache,
-                    camera_matrix, dist_coeffs
-                )
-                refine_reproj_info = (reproj_before, reproj_after)
-
-                # Отрисовка точек пирамиды (только найденные точки будут нарисованы)
+                # Отрисовка точек пирамиды
                 draw_pyramid_corners(frame, pyramid_results_cache,
                                      target_rvec, target_tvec,
                                      camera_matrix, dist_coeffs)
@@ -1654,8 +1930,9 @@ def main():
                         f"Pyramid: base={PYRAMID_BASE_SIZE}mm top={PYRAMID_TOP_SIZE}mm"
                         f" h={PYRAMID_HEIGHT:.1f}mm a={PYRAMID_ANGLE_DEG}deg",
                         (20, 620), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (150,150,150), 1)
-
-            cv2.imshow(window_controls, controls_frame)
+            
+            if WINDOWS_CONTROL_EN:
+                cv2.imshow(window_controls, controls_frame)
 
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q') or key == 27:
@@ -1675,7 +1952,6 @@ def main():
             picam2.stop()
         cv2.destroyAllWindows()
         print("✅ Done")
-
 
 if __name__ == "__main__":
     main()
