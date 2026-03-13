@@ -163,6 +163,8 @@ class CameraStreamer:
         #     self.current_v4l2_camera = camera_info.get('camera')
         #     self.current_picam2 = None
 
+        # ===== ВАЖНО: ИНИЦИАЛИЗИРУЕМ csi_settings =====
+        self.csi_settings = {}  # ← ЭТО ЕСТЬ!
 
         # Определяем тип текущей камеры
         if camera_info['type'] == 'csi':
@@ -174,6 +176,16 @@ class CameraStreamer:
             self.current_camera_idx = camera_info.get('camera_idx', 0)
             
             print(f"✅ CSI камера инициализирована: индекс {self.current_camera_idx}")
+
+            # ===== ВАЖНО: ЗАГРУЖАЕМ НАСТРОЙКИ =====
+            self._load_csi_settings()
+            
+            # Проверим, что загрузилось
+            if self.csi_settings:
+                print(f"📋 Загружены настройки для {self.csi_settings.get('name', 'CSI camera')}")
+                print(f"   Режим фокуса: {self.csi_settings.get('af_mode', 'unknown')}")
+                print(f"   Позиция линзы: {self.csi_settings.get('lens_position', 0.0)}")
+
         else:
             self.camera_type = 'v4l2'
             self.current_v4l2_camera = camera_info.get('camera')
@@ -267,6 +279,338 @@ class CameraStreamer:
         self.CAMERAS_CACHE_TTL = 30  # секунд
 
 
+    def _load_csi_settings(self):
+        """Загружает настройки для конкретной CSI камеры"""
+        
+        # Определяем индекс текущей CSI камеры
+        device = self.config['camera'].get('device', 'csi_0')
+        camera_idx = device.split('_')[1] if '_' in device else '0'
+        camera_key = f"csi_{camera_idx}"
+        
+        # Получаем настройки для этой камеры из секции csi_cameras
+        csi_config = self.config.get('csi_cameras', {}).get(camera_key, {})
+        
+        print(f"\n📷 ЗАГРУЗКА НАСТРОЕК ДЛЯ {camera_key}: {csi_config.get('name', 'Unknown')}")
+        print("="*60)
+        
+        # СОЗДАЕМ СЛОВАРЬ
+        settings = {
+            # Основные
+            'name': csi_config.get('name', f'CSI Camera {camera_idx}'),
+            'width': csi_config.get('width', 1920),
+            'height': csi_config.get('height', 1080),
+            'fps': csi_config.get('fps', 30),
+        }
+        
+        # Добавляем настройки в зависимости от типа камеры
+        if camera_key == 'csi_0':  # IMX708
+            print("🎯 Обнаружена IMX708 (с автофокусом)")
+            settings.update({
+                'af_mode': csi_config.get('af_mode', 'auto'),  # auto, а не continuous
+                'lens_position': csi_config.get('lens_position', 0.0),
+                'af_window': csi_config.get('af_window', False),
+                'af_window_size': csi_config.get('af_window_size', 0.3),
+                'ae_mode': csi_config.get('ae_mode', 'auto'),
+                'exposure_time': csi_config.get('exposure_time', 10000),
+                'analogue_gain': csi_config.get('analogue_gain', 1.0),
+                'ae_metering_mode': csi_config.get('ae_metering_mode', 'centre'),
+                'awb_mode': csi_config.get('awb_mode', 'auto'),
+                'hdr_mode': csi_config.get('hdr_mode', False),
+                'hdr_type': csi_config.get('hdr_type', 'multi'),
+                'brightness': csi_config.get('brightness', 0.0),
+                'contrast': csi_config.get('contrast', 1.0),
+                'saturation': csi_config.get('saturation', 1.0),
+                'sharpness': csi_config.get('sharpness', 1.0),
+                'noise_reduction': csi_config.get('noise_reduction', 'fast'),
+                'sensor_mode': csi_config.get('sensor_mode', 0),
+                'fps_limit': csi_config.get('fps_limit', 30),
+                'has_autofocus': True,
+                'has_hdr': True,
+            })
+        
+        # ВАЖНО: СОХРАНЯЕМ В self.csi_settings!
+        self.csi_settings = settings
+        
+        # Логируем загруженные настройки
+        print("\n📋 Загруженные настройки:")
+        for key, value in self.csi_settings.items():
+            if key not in ['name']:
+                print(f"   {key}: {value}")
+        print("="*60 + "\n")
+        
+        return self.csi_settings
+
+    def log_current_camera_settings(self, frame=None):
+        """Логирует текущие настройки камеры"""
+        try:
+            self.logger.info("=" * 70)
+            self.logger.info("📸 ТЕКУЩИЕ НАСТРОЙКИ КАМЕРЫ ПРИ СНИМКЕ")
+            self.logger.info("=" * 70)
+            
+            # Информация о типе камеры
+            self.logger.info(f"🎥 Тип камеры: {self.camera_type}")
+            self.logger.info(f"📷 Устройство: {self.config['camera'].get('device', 'unknown')}")
+            
+            if self.camera_type == 'csi' and self.current_picam2:
+                # Для CSI камеры
+                self.logger.info("\n🔧 НАСТРОЙКИ CSI КАМЕРЫ:")
+                
+                try:
+                    # ===== ВАЖНО: Получаем РЕЖИМ ФОКУСА через get_controls =====
+                    try:
+                        controls_dict = self.current_picam2.get_controls()
+                        
+                        # Режим фокуса
+                        if 'AfMode' in controls_dict:
+                            af_mode_val = controls_dict['AfMode']
+                            af_mode_str = {
+                                0: "Manual",
+                                1: "Auto",
+                                2: "Continuous"
+                            }.get(af_mode_val, f"Unknown ({af_mode_val})")
+                            self.logger.info(f"   🔍 AfMode: {af_mode_str} (из get_controls)")
+                        
+                        # Позиция линзы
+                        if 'LensPosition' in controls_dict:
+                            self.logger.info(f"   ⚙️ LensPosition: {controls_dict['LensPosition']}")
+                        
+                        # Режим экспозиции
+                        if 'AeEnable' in controls_dict:
+                            self.logger.info(f"   ⚡ AeEnable: {controls_dict['AeEnable']}")
+                        
+                        if 'ExposureTime' in controls_dict:
+                            self.logger.info(f"   ⏱️ ExposureTime: {controls_dict['ExposureTime']} мкс")
+                        
+                        if 'AnalogueGain' in controls_dict:
+                            self.logger.info(f"   📈 AnalogueGain: {controls_dict['AnalogueGain']}")
+                        
+                        # Баланс белого
+                        if 'AwbMode' in controls_dict:
+                            awb_val = controls_dict['AwbMode']
+                            awb_str = {
+                                0: "Auto",
+                                1: "Daylight",
+                                2: "Tungsten",
+                                3: "Fluorescent",
+                                4: "Indoor",
+                                5: "Cloudy"
+                            }.get(awb_val, f"Unknown ({awb_val})")
+                            self.logger.info(f"   🎨 AwbMode: {awb_str}")
+                        
+                        # HDR
+                        if 'HdrMode' in controls_dict:
+                            hdr_val = controls_dict['HdrMode']
+                            hdr_str = {
+                                0: "Off",
+                                1: "Single",
+                                2: "Multi",
+                                3: "Night"
+                            }.get(hdr_val, f"Unknown ({hdr_val})")
+                            self.logger.info(f"   🌈 HdrMode: {hdr_str}")
+                        
+                    except Exception as e:
+                        self.logger.warning(f"   ⚠️ Ошибка get_controls: {e}")
+                    
+                    # ===== МЕТАДАННЫЕ ПОСЛЕДНЕГО КАДРА =====
+                    try:
+                        metadata = self.current_picam2.capture_metadata()
+                        if metadata:
+                            self.logger.info("\n   📊 МЕТАДАННЫЕ ПОСЛЕДНЕГО КАДРА:")
+                            for key in ['LensPosition', 'ExposureTime', 'AnalogueGain', 
+                                    'DigitalGain', 'ColourGains', 'FocusFoM']:
+                                if key in metadata:
+                                    self.logger.info(f"      {key}: {metadata[key]}")
+                    except:
+                        pass
+                    
+                except Exception as e:
+                    self.logger.warning(f"   ⚠️ Ошибка при чтении контролов: {e}")
+            
+            elif self.camera_type == 'v4l2' and self.current_v4l2_camera:
+                # Для USB камеры
+                self.logger.info("\n🔧 НАСТРОЙКИ USB КАМЕРЫ:")
+                
+                try:
+                    # Разрешение
+                    width = self.current_v4l2_camera.get(cv2.CAP_PROP_FRAME_WIDTH)
+                    height = self.current_v4l2_camera.get(cv2.CAP_PROP_FRAME_HEIGHT)
+                    self.logger.info(f"   📐 Разрешение: {int(width)}x{int(height)}")
+                    
+                    # FPS
+                    fps = self.current_v4l2_camera.get(cv2.CAP_PROP_FPS)
+                    self.logger.info(f"   ⏱️ FPS: {fps:.1f}")
+                    
+                    # FOURCC кодек
+                    fourcc_int = int(self.current_v4l2_camera.get(cv2.CAP_PROP_FOURCC))
+                    fourcc_str = chr(fourcc_int & 0xFF) + chr((fourcc_int >> 8) & 0xFF) + \
+                                chr((fourcc_int >> 16) & 0xFF) + chr((fourcc_int >> 24) & 0xFF)
+                    self.logger.info(f"   📼 FOURCC: {fourcc_str}")
+                    
+                    # Экспозиция
+                    exposure = self.current_v4l2_camera.get(cv2.CAP_PROP_EXPOSURE)
+                    self.logger.info(f"   ⚡ Exposure: {exposure}")
+                    
+                    # Баланс белого
+                    wb = self.current_v4l2_camera.get(cv2.CAP_PROP_WHITE_BALANCE_BLUE_U)
+                    self.logger.info(f"   🎨 White Balance: {wb}")
+                    
+                except Exception as e:
+                    self.logger.warning(f"   ⚠️ Не удалось прочитать настройки USB: {e}")
+            
+            # Информация о кадре
+            if frame is not None:
+                h, w = frame.shape[:2]
+                self.logger.info(f"\n📸 ПАРАМЕТРЫ КАДРА:")
+                self.logger.info(f"   Размер: {w}x{h}")
+                self.logger.info(f"   Каналы: {frame.shape[2] if len(frame.shape) > 2 else 1}")
+                self.logger.info(f"   Тип данных: {frame.dtype}")
+                
+                # Статистика по яркости (если кадр цветной)
+                if len(frame.shape) == 3:
+                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                    self.logger.info(f"   Средняя яркость: {gray.mean():.1f}")
+                    self.logger.info(f"   Мин яркость: {gray.min()}")
+                    self.logger.info(f"   Макс яркость: {gray.max()}")
+            
+            self.logger.info("=" * 70)
+            
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка при логировании настроек: {e}")
+
+
+    def _configure_csi_camera(self):
+        """Настройка CSI камеры с учетом ее типа"""
+        try:
+            # 🔴 ДИАГНОСТИКА
+            print(f"\n🔍 ========== _configure_csi_camera() ==========")
+            print(f"🔍 self.csi_settings = {self.csi_settings}")
+            
+            # Проверяем, что настройки загружены
+            if not self.csi_settings:
+                print("❌ self.csi_settings пуст! Загружаем...")
+                self._load_csi_settings()
+            
+            settings = self.csi_settings
+            
+            # Проверяем наличие обязательных ключей
+            required_keys = ['name', 'width', 'height', 'ae_mode', 'has_autofocus']
+            for key in required_keys:
+                if key not in settings:
+                    print(f"⚠️ Ключ '{key}' отсутствует, устанавливаем значение по умолчанию")
+                    if key == 'name':
+                        settings[key] = 'CSI Camera'
+                    elif key == 'width':
+                        settings[key] = 1920
+                    elif key == 'height':
+                        settings[key] = 1080
+                    elif key == 'ae_mode':
+                        settings[key] = 'auto'
+                    elif key == 'has_autofocus':
+                        settings[key] = True
+            
+            from libcamera import controls
+
+            # Загружаем настройки если их нет
+            if not self.csi_settings:
+                print("📥 Загружаем настройки...")
+                self._load_csi_settings()
+            
+            settings = self.csi_settings
+            
+            # Проверяем, что настройки загружены
+            if not settings:
+                print("❌ Не удалось загрузить настройки!")
+                return
+            
+            print(f"\n📷 НАСТРОЙКА {settings['name']}")
+            print("-"*60)
+            print(f"   Разрешение: {settings['width']}x{settings['height']}")
+            print(f"   Режим фокуса: {settings.get('af_mode', 'не задан')}")
+            print(f"   Режим экспозиции: {settings.get('ae_mode', 'auto')}")
+            
+            # Создаем базовую конфигурацию
+            config = self.current_picam2.create_video_configuration(
+                main={"size": (settings['width'], settings['height'])}
+            )
+            self.current_picam2.configure(config)
+            print("✅ Конфигурация применена")
+            
+            controls_to_set = {}
+            
+            # ===== НАСТРОЙКИ ЭКСПОЗИЦИИ =====
+            if settings.get('ae_mode') == 'manual':
+                controls_to_set["AeEnable"] = False
+                controls_to_set["ExposureTime"] = int(settings.get('exposure_time', 10000))
+                controls_to_set["AnalogueGain"] = float(settings.get('analogue_gain', 1.0))
+                print(f"   ⚡ Экспозиция: Manual")
+            else:
+                controls_to_set["AeEnable"] = True
+                print(f"   ⚡ Экспозиция: Auto")
+            
+            # ===== НАСТРОЙКИ АВТОФОКУСА =====
+            if settings.get('has_autofocus', False):
+                af_mode = settings.get('af_mode', 'continuous')
+                print(f"   🔍 Режим фокуса: {af_mode}")
+                
+                if af_mode == 'manual':
+                    controls_to_set["AfMode"] = controls.AfModeEnum.Manual
+                    controls_to_set["LensPosition"] = float(settings.get('lens_position', 0.0))
+                    
+                elif af_mode == 'auto':
+                    controls_to_set["AfMode"] = controls.AfModeEnum.Auto
+                    
+                else:  # continuous
+                    controls_to_set["AfMode"] = controls.AfModeEnum.Continuous
+                    controls_to_set["AfSpeed"] = controls.AfSpeedEnum.Fast
+                
+                # Окно фокуса
+                if settings.get('af_window', False):
+                    win_size = settings.get('af_window_size', 0.3)
+                    win_w = int(settings['width'] * win_size)
+                    win_h = int(settings['height'] * win_size)
+                    win_x = (settings['width'] - win_w) // 2
+                    win_y = (settings['height'] - win_h) // 2
+                    controls_to_set["AfWindows"] = [(win_x, win_y, win_w, win_h)]
+                    print(f"      Окно фокуса: {win_x},{win_y},{win_w},{win_h}")
+            
+            # Применяем настройки
+            if controls_to_set:
+                print(f"⚙️ Применяем контролы: {list(controls_to_set.keys())}")
+                self.current_picam2.set_controls(controls_to_set)
+                time.sleep(0.5)
+            
+            # ЗАПУСКАЕМ КАМЕРУ
+            self.current_picam2.start()
+            print("✅ Камера запущена")
+            
+            # ТРИГГЕР ТОЛЬКО ДЛЯ AUTO РЕЖИМА
+            if settings.get('has_autofocus', False) and settings.get('af_mode') == 'auto':
+                print("   🔍 Запускаю автофокус (триггер)...")
+                self.current_picam2.set_controls({"AfTrigger": controls.AfTriggerEnum.Start})
+                time.sleep(1.0)
+                print("      ✅ Автофокус выполнен")
+            
+            # ПРОВЕРКА ФОКУСА
+            try:
+                metadata = self.current_picam2.capture_metadata()
+                if metadata:
+                    if 'LensPosition' in metadata:
+                        print(f"   📍 Позиция линзы: {metadata['LensPosition']}")
+                    if 'FocusFoM' in metadata:
+                        print(f"   📊 Резкость: {metadata['FocusFoM']}")
+                    if 'AfState' in metadata:
+                        state_map = {0: "Idle", 1: "Scanning", 2: "Focused", 3: "Failed"}
+                        print(f"   🔍 Состояние AF: {state_map.get(metadata['AfState'], metadata['AfState'])}")
+            except:
+                pass
+            
+            print(f"\n✅ {settings['name']} настроена и запущена")
+            
+        except Exception as e:
+            print(f"❌ Ошибка настройки CSI камеры: {e}")
+            import traceback
+            traceback.print_exc()
+
 
     def cleanup_old_streams(self):
         """Очистка старых стримов"""
@@ -304,9 +648,57 @@ class CameraStreamer:
         
         self.buffer_active = True
         frames_captured = 0
+        error_count = 0
+        max_errors = 30
+        consecutive_errors = 0
         
-        # 🔴 ДИАГНОСТИКА ПРИ ЗАПУСКЕ
-        if self.camera_type == 'v4l2' and self.current_v4l2_camera:
+        # ========== ДИАГНОСТИКА ПРИ ЗАПУСКЕ ==========
+        if self.camera_type == 'csi' and self.current_picam2:
+            try:
+                print("\n🔍 ДИАГНОСТИКА CSI КАМЕРЫ:")
+                
+                # Проверяем, запущена ли камера
+                if hasattr(self.current_picam2, 'started'):
+                    print(f"   Камера запущена: {self.current_picam2.started}")
+                
+                # Получаем конфигурацию
+                try:
+                    config = self.current_picam2.camera_configuration()
+                    if config and 'main' in config:
+                        w, h = config['main']['size']
+                        print(f"   Настроенное разрешение: {w}x{h}")
+                except:
+                    print("   ⚠️ Не удалось получить конфигурацию")
+                
+                # Пробуем получить тестовый кадр
+                print("   Пробую получить тестовый кадр...")
+                try:
+                    test_array = self.current_picam2.capture_array()
+                    if test_array is not None:
+                        print(f"   ✅ Тестовый кадр получен! Формат: {test_array.shape}")
+                        
+                        if len(test_array.shape) == 3:
+                            print(f"   📊 Каналы: {test_array.shape[2]}, тип: {test_array.dtype}")
+                            
+                            # Пробуем конвертировать
+                            try:
+                                test_frame = cv2.cvtColor(test_array, cv2.COLOR_RGB2BGR)
+                                print(f"   ✅ Конвертация RGB->BGR успешна")
+                            except:
+                                print(f"   ⚠️ Ошибка конвертации, но это не критично")
+                    else:
+                        print("   ❌ Тестовый кадр не получен!")
+                        consecutive_errors += 1
+                except Exception as e:
+                    print(f"   ❌ Ошибка получения тестового кадра: {e}")
+                    consecutive_errors += 1
+                    
+            except Exception as e:
+                print(f"   ❌ Ошибка диагностики CSI: {e}")
+                import traceback
+                traceback.print_exc()
+        
+        elif self.camera_type == 'v4l2' and self.current_v4l2_camera:
             try:
                 # Какое разрешение мы хотим?
                 target_width = self.config['camera'].get('width', 1024)
@@ -338,32 +730,120 @@ class CameraStreamer:
                     print(f"📋 Поддерживаемые разрешения: 1920x1200, 1280x720, 640x480")
                     
             except Exception as e:
-                print(f"❌ Ошибка диагностики: {e}")
+                print(f"❌ Ошибка диагностики USB: {e}")
         
+        # ========== ОСНОВНОЙ ЦИКЛ ЗАХВАТА ==========
         while self.stream_active and self.buffer_active:
             try:
                 frame = None
                 
-                if self.camera_type == 'csi':
-                    # Захват с CSI камеры
-                    if self.current_picam2:
-                        try:
-                            array = self.current_picam2.capture_array()
-                            if array is not None and len(array.shape) == 3 and array.shape[2] == 3:
-                                frame = cv2.cvtColor(array, cv2.COLOR_RGB2BGR)
-                        except Exception as e:
+                # ----- CSI КАМЕРА -----
+                if self.camera_type == 'csi' and self.current_picam2:
+                    try:
+                        # Проверяем, что камера запущена
+                        if hasattr(self.current_picam2, 'started') and not self.current_picam2.started:
+                            print("⚠️ Камера не запущена, пробую запустить...")
+                            self.current_picam2.start()
+                            time.sleep(0.5)
+                            continue
+                        
+                        # Захватываем кадр
+                        array = self.current_picam2.capture_array()
+                        
+                        if array is not None and array.size > 0:
+                            # Конвертируем RGB -> BGR для OpenCV
+                            if len(array.shape) == 3:
+                                if array.shape[2] == 3:
+                                    # Пробуем конвертировать
+                                    try:
+                                        frame = cv2.cvtColor(array, cv2.COLOR_RGB2BGR)
+                                    except:
+                                        # Если не получается, используем как есть
+                                        frame = array.copy()
+                                        print(f"⚠️ Ошибка конвертации, использую исходный формат")
+                                else:
+                                    # Не 3 канала, используем как есть
+                                    frame = array.copy()
+                                    if frames_captured % 30 == 0:
+                                        print(f"⚠️ Необычное число каналов: {array.shape[2]}")
+                            else:
+                                # Не 3-мерный массив
+                                frame = array.copy()
+                                if frames_captured % 30 == 0:
+                                    print(f"⚠️ Необычная размерность: {array.shape}")
+                            
+                            # Сброс счетчика ошибок при успехе
+                            consecutive_errors = 0
+                            error_count = 0
+                            
+                        else:
+                            # Кадр не получен
+                            consecutive_errors += 1
+                            error_count += 1
+                            
+                            if consecutive_errors >= max_errors:
+                                print(f"❌ Слишком много ошибок подряд ({consecutive_errors}), перезапускаю камеру...")
+                                try:
+                                    self.current_picam2.stop()
+                                    time.sleep(0.5)
+                                    self.current_picam2.start()
+                                    time.sleep(0.5)
+                                    consecutive_errors = 0
+                                    print("✅ Камера перезапущена")
+                                except Exception as e:
+                                    print(f"❌ Ошибка перезапуска: {e}")
+                            
+                            time.sleep(0.05)
+                            continue
+                            
+                    except Exception as e:
+                        consecutive_errors += 1
+                        error_count += 1
+                        
+                        if consecutive_errors % 10 == 0:
                             print(f"❌ Ошибка захвата CSI: {e}")
-                else:
-                    # Захват с USB камеры через V4L2
+                            if consecutive_errors >= max_errors:
+                                print("⚠️ Слишком много ошибок, пытаюсь восстановиться...")
+                                try:
+                                    self.current_picam2.stop()
+                                    time.sleep(0.5)
+                                    self.current_picam2.start()
+                                    consecutive_errors = 0
+                                except:
+                                    pass
+                        
+                        time.sleep(0.1)
+                        continue
+                
+                # ----- USB КАМЕРА -----
+                elif self.camera_type == 'v4l2' and self.current_v4l2_camera:
                     with self.camera_lock:
                         if self.current_v4l2_camera and self.current_v4l2_camera.isOpened():
-                            ret, frame = self.current_v4l2_camera.read()
-                            
-                            # ПЕРИОДИЧЕСКИ ПРОВЕРЯЕМ РАЗРЕШЕНИЕ
-                            if ret and frames_captured % 100 == 0:
-                                h, w = frame.shape[:2]
-                                print(f"📐 Кадр #{frames_captured}: разрешение {w}x{h}")
+                            try:
+                                ret, frame = self.current_v4l2_camera.read()
+                                
+                                if ret and frame is not None:
+                                    consecutive_errors = 0
+                                    
+                                    # Периодически проверяем разрешение
+                                    if frames_captured % 100 == 0:
+                                        h, w = frame.shape[:2]
+                                        print(f"📐 Кадр USB #{frames_captured}: {w}x{h}")
+                                else:
+                                    consecutive_errors += 1
+                                    if consecutive_errors % 10 == 0:
+                                        print(f"⚠️ Ошибка чтения USB кадра #{consecutive_errors}")
+                                    time.sleep(0.05)
+                                    continue
+                                    
+                            except Exception as e:
+                                consecutive_errors += 1
+                                if consecutive_errors % 10 == 0:
+                                    print(f"❌ Ошибка USB: {e}")
+                                time.sleep(0.1)
+                                continue
                 
+                # ===== ОБРАБОТКА УСПЕШНОГО КАДРА =====
                 if frame is not None and frame.size > 0:
                     self.frame_count += 1
                     frames_captured += 1
@@ -377,7 +857,7 @@ class CameraStreamer:
                     with self.frame_lock:
                         self.last_frame = frame.copy()
                     
-                    # Добавляем в буфер
+                    # Добавляем в буфер (с ограничением размера)
                     try:
                         if self.frame_buffer.full():
                             try:
@@ -388,20 +868,28 @@ class CameraStreamer:
                         self.frame_buffer.put_nowait(frame)
                     except Exception as e:
                         print(f"⚠️ Ошибка буфера: {e}")
-                else:
-                    if frames_captured % 10 == 0:
-                        print(f"⚠️ Не удалось прочитать кадр (тип: {self.camera_type})")
-                    time.sleep(0.033)
-                    
+                
+                # Небольшая задержка для снижения нагрузки CPU
+                time.sleep(0.01)
+                
             except Exception as e:
+                # Критическая ошибка в основном цикле
                 if frames_captured % 10 == 0:
-                    print(f"💥 Ошибка захвата: {e}")
+                    print(f"💥 Критическая ошибка в capture_frames: {e}")
                     import traceback
                     traceback.print_exc()
+                
+                # Пытаемся восстановиться
                 time.sleep(0.5)
+                
+                # Если ошибок слишком много, выходим
+                error_count += 1
+                if error_count > 100:
+                    print("❌ Слишком много критических ошибок, останавливаю поток")
+                    break
         
         print(f"📹 Поток захвата кадров остановлен. Всего кадров: {frames_captured}")
-        
+            
     def generate_from_buffer(self):
         """Генератор для получения кадров из буфера"""
         while self.stream_active:
@@ -474,6 +962,7 @@ class CameraStreamer:
             # ========== НАСТРОЙКА ПАРАМЕТРОВ ==========
             if self.camera_type == 'v4l2' and self.current_v4l2_camera:
                 try:
+                    
                     # Берем настройки из конфига
                     width = self.config['camera'].get('width', 1024)
                     height = self.config['camera'].get('height', 768)
@@ -532,24 +1021,24 @@ class CameraStreamer:
             
             elif self.camera_type == 'csi' and self.current_picam2:
                 try:
-                    # Настройка CSI камеры
-                    width = self.config['camera'].get('width', 1456)
-                    height = self.config['camera'].get('height', 1088)
-                    fps = self.config['camera'].get('fps', 30)
+                    # ВАЖНО: Останавливаем камеру если она работает
+                    try:
+                        self.current_picam2.stop()
+                        print("⏹️ CSI камера остановлена")
+                        time.sleep(0.5)
+                    except:
+                        pass
                     
-                    print(f"📷 НАСТРОЙКА CSI камеры: {width}x{height} @ {fps}fps")
+                    # ЗАГРУЖАЕМ НАСТРОЙКИ
+                    self._load_csi_settings()
                     
-                    # Создаем конфигурацию для видео
-                    config = self.current_picam2.create_video_configuration(
-                        main={"size": (width, height)},
-                        controls={"FrameRate": fps}
-                    )
-                    self.current_picam2.configure(config)
-                    
-                    print(f"✅ CSI камера настроена")
+                    # КОНФИГУРИРУЕМ КАМЕРУ
+                    self._configure_csi_camera()
                     
                 except Exception as e:
                     print(f"❌ Ошибка настройки CSI камеры: {e}")
+                    import traceback
+                    traceback.print_exc()
             # ========== КОНЕЦ НАСТРОЙКИ ==========
             
             # ПРИНУДИТЕЛЬНЫЙ СБРОС БУФЕРА ПЕРЕД ЗАПУСКОМ
@@ -1052,7 +1541,142 @@ class CameraStreamer:
                             
             except Exception as e:
                 return jsonify({'status': 'error', 'message': f'Неожиданная ошибка: {str(e)}'})
+
+
+        @self.app.route('/api/camera/focus', methods=['POST'])
+        def trigger_focus():
+            """Принудительный запуск автофокуса"""
+            try:
+                if self.camera_type != 'csi' or not self.current_picam2:
+                    return jsonify({'status': 'error', 'message': 'CSI камера не активна'}), 400
                 
+                from libcamera import controls
+                
+                # Получаем текущую позицию ДО
+                metadata = self.current_picam2.capture_metadata()
+                before_pos = metadata.get('LensPosition', 'unknown')
+                
+                print(f"🔍 До автофокуса: позиция {before_pos}")
+                
+                # ===== ВАЖНО: ПЕРЕКЛЮЧАЕМСЯ В AUTO РЕЖИМ =====
+                print("   Переключаю в режим Auto...")
+                self.current_picam2.set_controls({
+                    "AfMode": controls.AfModeEnum.Auto
+                })
+                time.sleep(0.2)
+                
+                # ===== ЗАПУСКАЕМ АВТОФОКУС =====
+                print("   Запускаю триггер автофокуса...")
+                self.current_picam2.set_controls({
+                    "AfTrigger": controls.AfTriggerEnum.Start
+                })
+                
+                # Ждем завершения фокусировки
+                time.sleep(1.5)
+                
+                # Получаем позицию ПОСЛЕ
+                metadata = self.current_picam2.capture_metadata()
+                after_pos = metadata.get('LensPosition', 'unknown')
+                fom = metadata.get('FocusFoM', 'unknown')
+                
+                print(f"✅ После автофокуса: позиция {after_pos}, резкость {fom}")
+                
+                # ОПЦИОНАЛЬНО: возвращаемся в Continuous если нужно
+                # self.current_picam2.set_controls({
+                #     "AfMode": controls.AfModeEnum.Continuous
+                # })
+                
+                return jsonify({
+                    'status': 'success',
+                    'message': 'Автофокус запущен',
+                    'lens_position_before': before_pos,
+                    'lens_position_after': after_pos,
+                    'focus_fom': fom
+                })
+                
+            except Exception as e:
+                print(f"❌ Ошибка автофокуса: {e}")
+                return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+        @self.app.route('/api/camera/focus/manual', methods=['POST'])
+        def set_manual_focus():
+            """Установка ручного фокуса"""
+            try:
+                data = request.get_json()
+                lens_position = data.get('position', 0.0)
+                
+                if self.camera_type != 'csi' or not self.current_picam2:
+                    return jsonify({'status': 'error', 'message': 'CSI камера не активна'}), 400
+                
+                from libcamera import controls
+                
+                # Устанавливаем ручной режим и позицию
+                self.current_picam2.set_controls({
+                    "AfMode": controls.AfModeEnum.Manual,
+                    "LensPosition": float(lens_position)
+                })
+                
+                # Проверяем результат
+                time.sleep(0.3)
+                metadata = self.current_picam2.capture_metadata()
+                actual_pos = metadata.get('LensPosition', 'unknown')
+                
+                return jsonify({
+                    'status': 'success',
+                    'message': f'Фокус установлен на {lens_position}',
+                    'actual_position': actual_pos
+                })
+                
+            except Exception as e:
+                return jsonify({'status': 'error', 'message': str(e)}), 500                
+
+        @self.app.route('/api/camera/debug_controls', methods=['GET'])
+        def debug_controls():
+            """Отладка всех доступных контролов"""
+            try:
+                if self.camera_type != 'csi' or not self.current_picam2:
+                    return jsonify({'status': 'error', 'message': 'CSI камера не активна'}), 400
+                
+                result = {
+                    'get_controls': {},
+                    'metadata': {},
+                    'controls_attrs': []
+                }
+                
+                # 1. Получаем все через get_controls()
+                try:
+                    controls_dict = self.current_picam2.get_controls()
+                    for key, value in controls_dict.items():
+                        result['get_controls'][key] = str(value)
+                except Exception as e:
+                    result['get_controls_error'] = str(e)
+                
+                # 2. Метаданные
+                try:
+                    metadata = self.current_picam2.capture_metadata()
+                    for key, value in metadata.items():
+                        result['metadata'][key] = str(value)
+                except Exception as e:
+                    result['metadata_error'] = str(e)
+                
+                # 3. Атрибуты controls
+                try:
+                    result['controls_attrs'] = dir(self.current_picam2.controls)
+                except Exception as e:
+                    pass
+                
+                return jsonify({
+                    'status': 'success',
+                    'debug_info': result,
+                    'config_fps': self.config['camera'].get('fps', 30),
+                    'config_af_mode': self.config.get('csi_cameras', {}).get('csi_0', {}).get('af_mode', 'unknown')
+                })
+                
+            except Exception as e:
+                return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
         @self.app.route('/status')
         def status_page():
             """Страница статуса сервера"""
@@ -1222,6 +1846,8 @@ class CameraStreamer:
                         'message': 'Не удалось получить кадр с камеры'
                     }), 500
                 
+                self.log_current_camera_settings(frame)
+
                 # Генерируем имя файла
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
                 filename = f"photo_{timestamp}.jpg"

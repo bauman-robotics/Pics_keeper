@@ -45,8 +45,10 @@ camera:
   #width: 640               # Ширина кадра
   #height: 480               # Высота кадра 
 
-  width: 1024
-  height: 768
+  #width: 1024
+  #height: 768
+  width: 1920
+  height: 1200
   # for global shutter
   fourcc: "MJPG"
   auto_exposure: 0.25
@@ -67,6 +69,86 @@ camera:
      
      
     # - "direct_video1"
+
+# =======================================================================================
+# ========== НАСТРОЙКИ ДЛЯ КОНКРЕТНЫХ CSI КАМЕР ==========
+csi_cameras:
+  # ===========================
+  # ===========================
+  # --- КАМЕРА 0: IMX708 (с автофокусом) ---
+  csi_0:
+    name: "IMX708 Camera Module 3"
+    
+    # Разрешение (макс. 4608x2592)
+    width: 1920
+    height: 1080
+    fps: 30
+    
+    # --- АВТОФОКУС (только для IMX708) ---
+    af_mode: "auto"        # "manual", "auto", "continuous"
+    lens_position: 0.0            # Для manual режима (0.0 = ∞, 5.0 = макро)
+    af_window: false              # Окно фокуса
+    af_window_size: 0.3           # Размер окна (30% кадра)
+    
+    # --- ЭКСПОЗИЦИЯ ---
+    ae_mode: "auto"               # "auto" или "manual"
+    exposure_time: 10000           # микросекунд (для manual)
+    analogue_gain: 1.0             # для manual
+    ae_metering_mode: "centre"     # "centre", "spot", "matrix"
+    
+    # --- БАЛАНС БЕЛОГО ---
+    awb_mode: "auto"               # "auto", "daylight", "tungsten", etc
+    
+    # --- HDR (доступно на IMX708) ---
+    hdr_mode: false
+    hdr_type: "multi"              # "single", "multi", "night"
+    
+    # --- ДОПОЛНИТЕЛЬНЫЕ НАСТРОЙКИ ИЗОБРАЖЕНИЯ ---
+    brightness: 0.0
+    contrast: 1.0
+    saturation: 1.0
+    sharpness: 1.0
+    noise_reduction: "fast"        # "off", "fast", "high_quality"
+    
+    # --- НАСТРОЙКИ СЕНСОРА ---
+    sensor_mode: 0
+    fps_limit: 30
+  # ===========================
+  # ===========================
+
+  # --- КАМЕРА 1: IMX415 (РОЛЛИНГ-ЗАТВОР, БЕЗ автофокуса) ---
+  csi_1:
+    name: "IMX415 Rolling Shutter"
+    
+    # Разрешение (макс. 3864x2192)
+    width: 1920          # Рекомендую 1920x1080 для баланса
+    height: 1080
+    fps: 23              # Реальный FPS из теста
+    
+    # --- ЭКСПОЗИЦИЯ (стандартная) ---
+    ae_mode: "auto"      # "auto" или "manual"
+    exposure_time: 10000  # микросекунд
+    analogue_gain: 1.0
+    
+    # --- БАЛАНС БЕЛОГО ---
+    awb_mode: "auto"
+    
+    # --- БАЗОВЫЕ НАСТРОЙКИ ИЗОБРАЖЕНИЯ ---
+    brightness: 0.0
+    contrast: 1.0
+    saturation: 1.0
+    sharpness: 1.0
+    
+    # --- НАСТРОЙКИ СЕНСОРА ---
+    sensor_mode: 0
+    fps_limit: 23        # Ограничиваем реальным значением
+    
+    # --- ФЛАГИ ВОЗМОЖНОСТЕЙ ---
+    has_autofocus: false  # НЕТ автофокуса
+    has_hdr: true         # HDR поддерживается [citation:6]
+    shutter_type: "rolling" # Явно указываем тип затвора    
+
+# =======================================================================================
 
 # Параметры потока
 stream:

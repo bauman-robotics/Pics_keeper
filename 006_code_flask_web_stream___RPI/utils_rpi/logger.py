@@ -101,6 +101,51 @@ class StreamLogger:
         self.logger.info(f"📁 Лог-файл: {self.log_file}")
         self.logger.info(f"⚙️  Конфигурация: {self.config_path}")
     
+    # def log_startup_info(self, config, camera_info=None):
+    #     """Логирование информации о запуске"""
+    #     self.logger.info("=" * 70)
+    #     self.logger.info("📋 ИНФОРМАЦИЯ О ЗАПУСКЕ")
+    #     self.logger.info("=" * 70)
+        
+    #     # Время запуска
+    #     self.logger.info(f"⏰ Время запуска: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        
+    #     # Параметры сервера
+    #     self.logger.info("🌐 ПАРАМЕТРЫ СЕРВЕРА:")
+    #     server_config = config.get('server', {})
+    #     self.logger.info(f"   Хост: {server_config.get('host', '0.0.0.0')}")
+    #     self.logger.info(f"   Порт: {server_config.get('port', 5000)}")
+    #     self.logger.info(f"   Debug: {server_config.get('debug', False)}")
+    #     self.logger.info(f"   Threaded: {server_config.get('threaded', True)}")
+        
+    #     # Параметры камеры
+    #     self.logger.info("📷 ПАРАМЕТРЫ КАМЕРЫ:")
+    #     camera_config = config.get('camera', {})
+    #     self.logger.info(f"   Устройство: {camera_config.get('device', 0)}")
+    #     self.logger.info(f"   Бэкенд: {camera_config.get('backend', 'auto')}")
+    #     self.logger.info(f"   Разрешение: {camera_config.get('width', 'auto')}x{camera_config.get('height', 'auto')}")
+    #     self.logger.info(f"   FPS: {camera_config.get('fps', 'auto')}")
+    #     self.logger.info(f"   JPEG качество: {camera_config.get('jpeg_quality', 85)}")
+        
+    #     if camera_info:
+    #         self.logger.info(f"   📸 Найденная камера: {camera_info.get('name', 'неизвестно')}")
+    #         self.logger.info(f"   📐 Фактическое разрешение: {camera_info.get('resolution', 'неизвестно')}")
+    #         self.logger.info(f"   📊 Фактический FPS: {camera_info.get('fps', 'неизвестно')}")
+        
+    #     # Параметры потока
+    #     self.logger.info("🎬 ПАРАМЕТРЫ ПОТОКА:")
+    #     stream_config = config.get('stream', {})
+    #     self.logger.info(f"   Макс. ошибок: {stream_config.get('max_error_count', 10)}")
+    #     self.logger.info(f"   Интервал логирования: {stream_config.get('frame_log_interval', 30)}")
+        
+    #     # Пути
+    #     self.logger.info("📁 ПУТИ:")
+    #     paths_config = config.get('paths', {})
+    #     self.logger.info(f"   Шаблоны: {paths_config.get('templates_folder', 'templates')}")
+    #     self.logger.info(f"   Логи: {self.log_dir}")
+        
+    #     self.logger.info("=" * 70)
+    
     def log_startup_info(self, config, camera_info=None):
         """Логирование информации о запуске"""
         self.logger.info("=" * 70)
@@ -117,35 +162,119 @@ class StreamLogger:
         self.logger.info(f"   Порт: {server_config.get('port', 5000)}")
         self.logger.info(f"   Debug: {server_config.get('debug', False)}")
         self.logger.info(f"   Threaded: {server_config.get('threaded', True)}")
+        self.logger.info(f"   Max concurrent streams: {server_config.get('max_concurrent_streams', 4)}")
         
         # Параметры камеры
         self.logger.info("📷 ПАРАМЕТРЫ КАМЕРЫ:")
         camera_config = config.get('camera', {})
-        self.logger.info(f"   Устройство: {camera_config.get('device', 0)}")
+        device = camera_config.get('device', 0)
+        self.logger.info(f"   Устройство: {device}")
+        self.logger.info(f"   Тип камеры: {camera_config.get('type', 'auto')}")
         self.logger.info(f"   Бэкенд: {camera_config.get('backend', 'auto')}")
         self.logger.info(f"   Разрешение: {camera_config.get('width', 'auto')}x{camera_config.get('height', 'auto')}")
         self.logger.info(f"   FPS: {camera_config.get('fps', 'auto')}")
         self.logger.info(f"   JPEG качество: {camera_config.get('jpeg_quality', 85)}")
         
+        # ===== НОВЫЕ ПАРАМЕТРЫ ДЛЯ USB КАМЕР =====
+        if 'fourcc' in camera_config:
+            self.logger.info(f"   📼 FOURCC кодек: {camera_config.get('fourcc', 'MJPG')}")
+        if 'auto_exposure' in camera_config:
+            self.logger.info(f"   ⚡ Автоэкспозиция: {camera_config.get('auto_exposure', 0.25)}")
+        
+        # ===== НАСТРОЙКИ ДЛЯ CSI КАМЕР =====
+        if str(device).startswith('csi_'):
+            camera_idx = device.split('_')[1] if '_' in device else '0'
+            camera_key = f"csi_{camera_idx}"
+            
+            # Получаем настройки для конкретной CSI камеры
+            csi_config = config.get('csi_cameras', {}).get(camera_key, {})
+            
+            self.logger.info(f"\n   🔧 СПЕЦИАЛЬНЫЕ НАСТРОЙКИ ДЛЯ {camera_key}:")
+            self.logger.info(f"      Модель: {csi_config.get('name', 'Unknown')}")
+            
+            # Основные параметры
+            if 'sensor_mode' in csi_config:
+                self.logger.info(f"      Режим сенсора: {csi_config.get('sensor_mode', 0)}")
+            if 'fps_limit' in csi_config:
+                self.logger.info(f"      Лимит FPS: {csi_config.get('fps_limit', 30)}")
+            
+            # Параметры экспозиции
+            self.logger.info(f"      ⚡ Режим экспозиции: {csi_config.get('ae_mode', 'auto')}")
+            if csi_config.get('ae_mode') == 'manual':
+                self.logger.info(f"         Выдержка: {csi_config.get('exposure_time', 10000)} мкс")
+                self.logger.info(f"         Gain: {csi_config.get('analogue_gain', 1.0)}")
+            if 'ae_metering_mode' in csi_config:
+                self.logger.info(f"      📊 Метринг экспозиции: {csi_config.get('ae_metering_mode', 'centre')}")
+            
+            # Параметры баланса белого
+            self.logger.info(f"      🎨 Баланс белого: {csi_config.get('awb_mode', 'auto')}")
+            
+            # ===== ПАРАМЕТРЫ ДЛЯ IMX708 (с автофокусом) =====
+            if camera_key == 'csi_0':
+                self.logger.info(f"      🔍 АВТОФОКУС (IMX708):")
+                self.logger.info(f"         Режим: {csi_config.get('af_mode', 'continuous')}")
+                if csi_config.get('af_mode') == 'manual':
+                    self.logger.info(f"         Позиция линзы: {csi_config.get('lens_position', 0.0)}")
+                if csi_config.get('af_window', False):
+                    self.logger.info(f"         Окно фокуса: {csi_config.get('af_window_size', 0.3)*100}% кадра")
+                
+                # HDR для IMX708
+                if csi_config.get('hdr_mode', False):
+                    self.logger.info(f"      🌈 HDR: {csi_config.get('hdr_type', 'multi')}")
+            
+            # ===== ПАРАМЕТРЫ ДЛЯ IMX415 (роллинг-затвор) =====
+            elif camera_key == 'csi_1':
+                self.logger.info(f"      📸 Тип затвора: rolling")
+                if csi_config.get('hdr_mode', False):
+                    self.logger.info(f"      🌈 HDR: {csi_config.get('hdr_type', 'multi')}")
+            
+            # Дополнительные настройки изображения
+            self.logger.info(f"      ✨ Настройки изображения:")
+            self.logger.info(f"         Яркость: {csi_config.get('brightness', 0.0)}")
+            self.logger.info(f"         Контраст: {csi_config.get('contrast', 1.0)}")
+            self.logger.info(f"         Насыщенность: {csi_config.get('saturation', 1.0)}")
+            self.logger.info(f"         Резкость: {csi_config.get('sharpness', 1.0)}")
+            
+            if 'noise_reduction' in csi_config:
+                self.logger.info(f"      🔇 Шумоподавление: {csi_config.get('noise_reduction', 'fast')}")
+        
+        # Информация о найденной камере
         if camera_info:
-            self.logger.info(f"   📸 Найденная камера: {camera_info.get('name', 'неизвестно')}")
+            self.logger.info(f"\n   📸 Найденная камера: {camera_info.get('name', 'неизвестно')}")
             self.logger.info(f"   📐 Фактическое разрешение: {camera_info.get('resolution', 'неизвестно')}")
             self.logger.info(f"   📊 Фактический FPS: {camera_info.get('fps', 'неизвестно')}")
         
         # Параметры потока
-        self.logger.info("🎬 ПАРАМЕТРЫ ПОТОКА:")
+        self.logger.info("\n🎬 ПАРАМЕТРЫ ПОТОКА:")
         stream_config = config.get('stream', {})
         self.logger.info(f"   Макс. ошибок: {stream_config.get('max_error_count', 10)}")
         self.logger.info(f"   Интервал логирования: {stream_config.get('frame_log_interval', 30)}")
+        self.logger.info(f"   Размер буфера: {stream_config.get('buffer_size', 30)}")
+        self.logger.info(f"   Автостарт: {stream_config.get('auto_start', True)}")
         
         # Пути
         self.logger.info("📁 ПУТИ:")
         paths_config = config.get('paths', {})
         self.logger.info(f"   Шаблоны: {paths_config.get('templates_folder', 'templates')}")
         self.logger.info(f"   Логи: {self.log_dir}")
+        self.logger.info(f"   Фото: {paths_config.get('photos_folder', 'static/photos')}")
+        
+        # Интервалы
+        self.logger.info("⏱️  ИНТЕРВАЛЫ:")
+        intervals_config = config.get('intervals', {})
+        self.logger.info(f"   Обновление статуса: {intervals_config.get('status_update', 2000)} мс")
+        self.logger.info(f"   Задержка при ошибке: {intervals_config.get('error_retry_delay', 1000)} мс")
+        
+        # Дополнительные настройки
+        self.logger.info("⚙️  ДОПОЛНИТЕЛЬНО:")
+        advanced_config = config.get('advanced', {})
+        self.logger.info(f"   Авторестарт: {advanced_config.get('auto_restart', True)}")
+        self.logger.info(f"   Подробное логирование: {advanced_config.get('verbose_logging', True)}")
+        self.logger.info(f"   Метрики: {advanced_config.get('enable_metrics', True)}")
         
         self.logger.info("=" * 70)
-    
+
+
     # Методы для внутреннего логгера
     def info(self, message):
         """Информационное сообщение"""
