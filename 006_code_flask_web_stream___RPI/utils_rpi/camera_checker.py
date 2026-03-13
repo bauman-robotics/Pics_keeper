@@ -489,7 +489,7 @@ class CameraChecker:
             return self._api_cache
         
         # Получаем камеры
-        cameras = self.detect_cameras_fast(max_devices=8)
+        cameras = self.detect_cameras_fast(max_devices=20)
         
         # Фильтруем только успешные камеры
         real_cameras = [cam for cam in cameras if cam.get('success', False)]
@@ -501,13 +501,20 @@ class CameraChecker:
         for cam in real_cameras:
             name = self._get_camera_name(cam['device_path'])
             
+            # 🔴 ОТЛАДКА: выводим имя камеры
+            print(f"🔍 Камера {cam['device_path']}: имя='{name}'")
+            
+            # Проверяем, является ли CSI
+            is_csi = self._is_csi_camera_by_name(name)
+            print(f"   is_csi={is_csi}")
+            
             # Если это новая камера (по имени) или у нас ещё нет камер
             if name not in seen_names or not seen_names:
                 seen_names.add(name)
                 
-                # ПРОВЕРЯЕМ: если это CSI камера - пропускаем (она будет добавлена отдельно в endpoint)
-                if self._is_csi_camera_by_name(name):
-                    print(f"🔄 Пропускаем CSI камеру в USB списке: {name}")
+                # ПРОВЕРЯЕМ: если это CSI камера - пропускаем
+                if is_csi:
+                    print(f"🔄 Пропускаем CSI камеру: {name}")
                     continue
                 
                 # Упрощаем данные для API
@@ -519,14 +526,16 @@ class CameraChecker:
                     'is_camera': True
                 }
                 
+                print(f"✅ Добавляем USB камеру: {name}")
                 unique_cameras.append(api_cam)
         
         # Сохраняем в кэш
         self._api_cache = unique_cameras
         self._api_cache_time = current_time
         
+        print(f"📊 Итого USB камер после фильтрации: {len(unique_cameras)}")
         return unique_cameras
-    
+        
     def _is_csi_camera_by_name(self, name: str) -> bool:
         """Определяет по названию, является ли камера CSI"""
         if not name:

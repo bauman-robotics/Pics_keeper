@@ -25,7 +25,7 @@ camera:
   # device: "/dev/video0"                 # /dev/video0 (первая USB камера)
   # device: "/dev/video2"                 # /dev/video2 (вторая USB камера - Logitech)
   # device: "/dev/video4"          # /dev/video4 (третья USB камера - USB 2.0 HD 720P)
-  
+  # device: "/dev/video8" 
   # === ВАРИАНТ 2: Прямой путь ===
   # device: "/dev/video0"     # Прямой путь к первой USB камере
   # device: "/dev/video2"     # Прямой путь ко второй USB камере
@@ -42,8 +42,14 @@ camera:
   # Разрешение и качество
   #width: 1280               # Ширина кадра
   #height: 720               # Высота кадра
-  width: 640               # Ширина кадра
-  height: 480               # Высота кадра
+  #width: 640               # Ширина кадра
+  #height: 480               # Высота кадра 
+
+  width: 1024
+  height: 768
+  # for global shutter
+  fourcc: "MJPG"
+  auto_exposure: 0.25
 
   fps: 15                   # Кадров в секунду
   

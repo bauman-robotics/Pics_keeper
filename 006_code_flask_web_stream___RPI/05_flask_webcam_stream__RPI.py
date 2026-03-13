@@ -305,6 +305,41 @@ class CameraStreamer:
         self.buffer_active = True
         frames_captured = 0
         
+        # 🔴 ДИАГНОСТИКА ПРИ ЗАПУСКЕ
+        if self.camera_type == 'v4l2' and self.current_v4l2_camera:
+            try:
+                # Какое разрешение мы хотим?
+                target_width = self.config['camera'].get('width', 1024)
+                target_height = self.config['camera'].get('height', 768)
+                
+                # Какое разрешение у камеры СЕЙЧАС?
+                current_width = int(self.current_v4l2_camera.get(cv2.CAP_PROP_FRAME_WIDTH))
+                current_height = int(self.current_v4l2_camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                
+                print(f"🎯 Желаемое разрешение: {target_width}x{target_height}")
+                print(f"📸 Текущее разрешение камеры: {current_width}x{current_height}")
+                
+                # Пробуем принудительно установить
+                print(f"🔄 Пробуем установить {target_width}x{target_height}...")
+                
+                self.current_v4l2_camera.set(cv2.CAP_PROP_FRAME_WIDTH, target_width)
+                self.current_v4l2_camera.set(cv2.CAP_PROP_FRAME_HEIGHT, target_height)
+                
+                time.sleep(0.3)
+                
+                # Проверяем, что получилось
+                new_width = int(self.current_v4l2_camera.get(cv2.CAP_PROP_FRAME_WIDTH))
+                new_height = int(self.current_v4l2_camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                
+                print(f"✅ Новое разрешение: {new_width}x{new_height}")
+                
+                if new_width != target_width or new_height != target_height:
+                    print(f"⚠️ Камера НЕ поддерживает {target_width}x{target_height}!")
+                    print(f"📋 Поддерживаемые разрешения: 1920x1200, 1280x720, 640x480")
+                    
+            except Exception as e:
+                print(f"❌ Ошибка диагностики: {e}")
+        
         while self.stream_active and self.buffer_active:
             try:
                 frame = None
@@ -323,6 +358,11 @@ class CameraStreamer:
                     with self.camera_lock:
                         if self.current_v4l2_camera and self.current_v4l2_camera.isOpened():
                             ret, frame = self.current_v4l2_camera.read()
+                            
+                            # ПЕРИОДИЧЕСКИ ПРОВЕРЯЕМ РАЗРЕШЕНИЕ
+                            if ret and frames_captured % 100 == 0:
+                                h, w = frame.shape[:2]
+                                print(f"📐 Кадр #{frames_captured}: разрешение {w}x{h}")
                 
                 if frame is not None and frame.size > 0:
                     self.frame_count += 1
@@ -330,7 +370,8 @@ class CameraStreamer:
                     
                     # Логируем каждые 30 кадров
                     if frames_captured % 30 == 0:
-                        print(f"📊 Захвачено кадров: {frames_captured}, Тип: {self.camera_type}")
+                        h, w = frame.shape[:2]
+                        print(f"📊 Захвачено кадров: {frames_captured}, Тип: {self.camera_type}, Размер: {w}x{h}")
                     
                     # Сохраняем последний кадр
                     with self.frame_lock:
@@ -355,10 +396,12 @@ class CameraStreamer:
             except Exception as e:
                 if frames_captured % 10 == 0:
                     print(f"💥 Ошибка захвата: {e}")
+                    import traceback
+                    traceback.print_exc()
                 time.sleep(0.5)
         
         print(f"📹 Поток захвата кадров остановлен. Всего кадров: {frames_captured}")
-
+        
     def generate_from_buffer(self):
         """Генератор для получения кадров из буфера"""
         while self.stream_active:
@@ -408,8 +451,106 @@ class CameraStreamer:
         """Внутренний запуск стрима"""
         if not self.stream_active:
             print("=== DEBUG: start_stream_internal() called ===")
-            print(f"stream_active before: {self.stream_active}")
-            print(f"📊 Размер буфера перед запуском: {self.frame_buffer.qsize()}")
+            
+            # ВАЖНО: Полностью пересоздаем камеру для чистоты
+            if self.camera_type == 'v4l2':
+                # Закрываем старую камеру если есть
+                if self.current_v4l2_camera:
+                    self.current_v4l2_camera.release()
+                    self.current_v4l2_camera = None
+                    time.sleep(0.5)
+                
+                # Открываем заново
+                device_path = self.config['camera'].get('device', '/dev/video8')
+                print(f"📷 Открываю камеру {device_path}...")
+                self.current_v4l2_camera = cv2.VideoCapture(device_path, cv2.CAP_V4L2)
+                
+                if not self.current_v4l2_camera.isOpened():
+                    print("❌ Не удалось открыть камеру")
+                    return
+                
+                print("✅ Камера открыта")
+            
+            # ========== НАСТРОЙКА ПАРАМЕТРОВ ==========
+            if self.camera_type == 'v4l2' and self.current_v4l2_camera:
+                try:
+                    # Берем настройки из конфига
+                    width = self.config['camera'].get('width', 1024)
+                    height = self.config['camera'].get('height', 768)
+                    fps = self.config['camera'].get('fps', 15)
+                    
+                    print(f"📷 НАСТРОЙКА USB камеры: {width}x{height} @ {fps}fps")
+                    
+                    # ВАЖНО: Порядок из теста - сначала кодек
+                    fourcc = cv2.VideoWriter_fourcc('M', 'J', 'P', 'G')
+                    print(f"🎬 Устанавливаю кодек MJPG...")
+                    self.current_v4l2_camera.set(cv2.CAP_PROP_FOURCC, fourcc)
+                    time.sleep(0.1)
+                    
+                    # Потом разрешение
+                    print(f"📐 Устанавливаю разрешение {width}x{height}...")
+                    self.current_v4l2_camera.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+                    self.current_v4l2_camera.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+                    
+                    # Устанавливаем FPS
+                    self.current_v4l2_camera.set(cv2.CAP_PROP_FPS, fps)
+                    
+                    # Для глобального затвора
+                    self.current_v4l2_camera.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)
+                    
+                    # Даем время на применение
+                    time.sleep(0.3)
+                    
+                    # ПРОВЕРЯЕМ реальные настройки
+                    actual_width = int(self.current_v4l2_camera.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    actual_height = int(self.current_v4l2_camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    actual_fps = self.current_v4l2_camera.get(cv2.CAP_PROP_FPS)
+                    actual_fourcc = int(self.current_v4l2_camera.get(cv2.CAP_PROP_FOURCC))
+                    
+                    fourcc_str = chr(actual_fourcc & 0xFF) + chr((actual_fourcc >> 8) & 0xFF) + \
+                                chr((actual_fourcc >> 16) & 0xFF) + chr((actual_fourcc >> 24) & 0xFF)
+                    
+                    print(f"✅ РЕАЛЬНЫЕ настройки: {actual_width}x{actual_height} @ {actual_fps:.1f}fps, кодек: {fourcc_str}")
+                    
+                    # ОБНОВЛЯЕМ КОНФИГ реальными значениями
+                    self.config['camera']['width'] = actual_width
+                    self.config['camera']['height'] = actual_height
+                    self.config['camera']['fps'] = actual_fps
+                    
+                    # Проверяем захват кадра
+                    ret, test_frame = self.current_v4l2_camera.read()
+                    if ret and test_frame is not None:
+                        h, w = test_frame.shape[:2]
+                        print(f"📸 Тестовый кадр: {w}x{h}")
+                    else:
+                        print("⚠️ Не удалось получить тестовый кадр")
+                    
+                except Exception as e:
+                    print(f"❌ Ошибка настройки USB камеры: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            elif self.camera_type == 'csi' and self.current_picam2:
+                try:
+                    # Настройка CSI камеры
+                    width = self.config['camera'].get('width', 1456)
+                    height = self.config['camera'].get('height', 1088)
+                    fps = self.config['camera'].get('fps', 30)
+                    
+                    print(f"📷 НАСТРОЙКА CSI камеры: {width}x{height} @ {fps}fps")
+                    
+                    # Создаем конфигурацию для видео
+                    config = self.current_picam2.create_video_configuration(
+                        main={"size": (width, height)},
+                        controls={"FrameRate": fps}
+                    )
+                    self.current_picam2.configure(config)
+                    
+                    print(f"✅ CSI камера настроена")
+                    
+                except Exception as e:
+                    print(f"❌ Ошибка настройки CSI камеры: {e}")
+            # ========== КОНЕЦ НАСТРОЙКИ ==========
             
             # ПРИНУДИТЕЛЬНЫЙ СБРОС БУФЕРА ПЕРЕД ЗАПУСКОМ
             if not self.frame_buffer.empty():
@@ -449,9 +590,18 @@ class CameraStreamer:
                 time.sleep(0.5)
                 print(f"📊 Проверка через 0.5с: Поток жив: {self.buffer_thread.is_alive() if self.buffer_thread else False}, "
                     f"Буфер: {self.frame_buffer.qsize()}")
+                
+                # Дополнительная проверка разрешения после запуска
+                if self.camera_type == 'v4l2' and self.current_v4l2_camera:
+                    try:
+                        w = int(self.current_v4l2_camera.get(cv2.CAP_PROP_FRAME_WIDTH))
+                        h = int(self.current_v4l2_camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                        print(f"📸 Реальное разрешение в потоке: {w}x{h}")
+                    except:
+                        pass
             
             threading.Thread(target=delayed_check, daemon=True).start()
-    
+        
     def stop_stream_internal(self):
         """Внутренняя остановка стрима"""
         if self.stream_active:
@@ -719,18 +869,29 @@ class CameraStreamer:
                 # 1. USB камеры через V4L2 (исключая CSI)
                 usb_cameras = self.camera_checker.get_cameras_for_api()
                 
+                # ОТЛАДКА: выведем все USB камеры, которые вернул CameraChecker
+                print(f"🔍 CameraChecker вернул {len(usb_cameras)} камер:")
+                for i, cam in enumerate(usb_cameras):
+                    print(f"  {i}: {cam.get('device_path')} - {cam.get('name')} - is_camera={cam.get('is_camera')}")
+                
                 # Используем метод из CameraChecker для проверки
                 for cam in usb_cameras:
                     name = cam.get('name', '')
+                    device_path = cam.get('device_path', '')
                     
                     # ПРОВЕРЯЕМ: пропускаем CSI камеры, используя метод из CameraChecker
                     if self.camera_checker._is_csi_camera_by_name(name):
-                        print(f"🔄 Пропускаем CSI камеру в USB списке: {name}")
+                        print(f"🔄 Пропускаем CSI камеру в USB списке: {name} ({device_path})")
                         continue
-                        
-                    if cam.get('is_camera', False):
+                    
+                    # ИСПРАВЛЕНИЕ: Добавляем камеру, если она имеет is_camera=True ИЛИ
+                    # если это явно USB камера (по имени или пути)
+                    is_usb_camera = 'usb' in device_path.lower() or 'usb' in name.lower()
+                    has_formats = cam.get('formats') and len(cam.get('formats', [])) > 0
+                    
+                    if cam.get('is_camera', False) or is_usb_camera or has_formats:
                         cam['type'] = 'USB'  # Явно указываем тип
-                        cam['device_path'] = cam.get('device_path', '')
+                        cam['device_path'] = device_path
                         cam['is_current'] = False
                         
                         # Проверяем, является ли эта камера текущей
@@ -739,24 +900,38 @@ class CameraStreamer:
                             if isinstance(current_path, int):
                                 current_path = f"/dev/video{current_path}"
                             cam['is_current'] = cam['device_path'] == current_path
-                            
+                        
+                        print(f"✅ Добавляем USB камеру: {device_path} - {name}")
                         available_cameras.append(cam)
+                    else:
+                        print(f"❌ Пропускаем камеру (не is_camera): {device_path} - {name}")
                 
-                # 2. CSI камеры через Picamera2
-                for cam in self.csi_manager.cameras:
-                    csi_info = {
-                        'device_path': f"csi_{cam['index']}",
-                        'name': cam['name'],
-                        'type': 'CSI',  # Явно указываем тип
-                        'formats': ['RGB888', 'BGR888'],
-                        'resolutions': ['4608x2592', '1920x1080', '1280x720'],
-                        'is_camera': True,
-                        'is_current': False
-                    }
-                    # Проверяем, является ли эта CSI камера текущей
-                    if self.camera_type == 'csi' and self.csi_manager.current_camera == cam['index']:
-                        csi_info['is_current'] = True
-                    available_cameras.append(csi_info)
+                # 2. 🔴 ИСПРАВЛЕНО: CSI камеры с проверкой на None
+                if hasattr(self, 'csi_manager') and self.csi_manager is not None:
+                    try:
+                        if hasattr(self.csi_manager, 'cameras') and self.csi_manager.cameras:
+                            for cam in self.csi_manager.cameras:
+                                csi_info = {
+                                    'device_path': f"csi_{cam['index']}",
+                                    'name': cam['name'],
+                                    'type': 'CSI',  # Явно указываем тип
+                                    'formats': ['RGB888', 'BGR888'],
+                                    'resolutions': ['4608x2592', '1920x1080', '1280x720'],
+                                    'is_camera': True,
+                                    'is_current': False
+                                }
+                                # Проверяем, является ли эта CSI камера текущей
+                                if self.camera_type == 'csi' and self.csi_manager.current_camera == cam['index']:
+                                    csi_info['is_current'] = True
+                                available_cameras.append(csi_info)
+                        else:
+                            print("ℹ️ CSI камеры не найдены или список пуст")
+                    except Exception as e:
+                        print(f"⚠️ Ошибка при обработке CSI камер: {e}")
+                else:
+                    print("ℹ️ CSI менеджер не инициализирован")
+                
+                print(f"📊 Итого добавлено камер в API: {len(available_cameras)}")
                 
                 return jsonify({
                     'cameras': available_cameras,
@@ -767,6 +942,8 @@ class CameraStreamer:
                 
             except Exception as e:
                 print(f"❌ Ошибка получения списка камер: {e}")
+                import traceback
+                traceback.print_exc()  # Это покажет точную строку ошибки
                 self.logger.log_error(f"Ошибка получения списка камер: {e}")
                 return jsonify({
                     'cameras': [],
@@ -774,8 +951,7 @@ class CameraStreamer:
                     'error': str(e),
                     'current_camera_type': self.camera_type
                 })
-
-        
+                
         @self.app.route('/api/cameras/select', methods=['POST'])
         def select_camera():
             """Выбор камеры для стрима (USB или CSI)"""
