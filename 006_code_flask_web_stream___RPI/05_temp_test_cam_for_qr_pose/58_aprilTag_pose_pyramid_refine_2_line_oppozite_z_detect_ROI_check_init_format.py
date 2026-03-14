@@ -57,7 +57,7 @@ LINE_SPACING = 40  # Межстрочный интервал в пикселях
 # ============================================================================
 
 CAMERA_TYPE = 'csi' # 'usb'  'csi'
-USB_DEVICE = '/dev/video16'
+#USB_DEVICE = '/dev/video16'
 CAMERA_WIDTH = 1920
 CAMERA_HEIGHT = 1200
 
@@ -67,6 +67,30 @@ CAMERA_HEIGHT = 1200
 #CAMERA_HEIGHT = 480
 
 CAMERA_FPS = 30
+
+# ============================================================================
+# НАСТРОЙКИ ИНИЦИАЛИЗАЦИИ КАМЕРЫ
+# ============================================================================
+# Режимы работы камеры:
+#   "NEW"  - новая оптимизированная версия (MJPEG, 90 fps)
+#   "OLD"  - старая версия (для сравнения и отладки)
+CAMERA_CONFIG_MODE = "OLD"  # По умолчанию используем новую версию
+
+
+# Режимы инициализации камеры:
+#   "SIMPLE"  - простая инициализация (только индекс)
+#   "MJPEG"   - принудительный MJPEG формат с настройкой FPS
+#   "V4L2"    - использование V4L2 бэкенда
+#   "AUTO"    - автоматический выбор (пробует MJPEG, затем SIMPLE)
+CAMERA_INIT_MODE = "MJPEG"  # Рекомендуется MJPEG для максимальной производительности
+
+# Параметры для MJPEG режима
+CAMERA_FPS_TARGET = 90  # Целевой FPS (если поддерживается камерой)
+
+# Индекс USB камеры (из v4l2-ctl --list-devices)
+USB_DEVICE = 16  # Ваша камера на /dev/video16
+
+# ============================================================================
 
 CALIB_WIDTH = 640
 CALIB_HEIGHT = 480
@@ -1310,37 +1334,66 @@ def flip_z_axis(rvec, tvec):
 
 def init_camera():
     global camera_matrix, dist_coeffs, width, height, cap, picam2
+    global CAMERA_WIDTH, CAMERA_HEIGHT  # Добавляем для обновления глобальных переменных
 
-    print(f"\n📹 CAMERA INIT")
+    print(f"\n📹 CAMERA INIT (mode: {CAMERA_CONFIG_MODE})")
     print(f"{'='*50}")
 
     camera_matrix = np.load(CAMERA_MATRIX_FILE)
     dist_coeffs = np.load(DIST_COEFFS_FILE)
 
     if CAMERA_TYPE == 'usb':
-        cap = cv2.VideoCapture(USB_DEVICE, cv2.CAP_V4L2)
+        if CAMERA_CONFIG_MODE == "OLD":
+            # ===== СТАРАЯ ВЕРСИЯ (для сравнения) =====
+            print("\n🔴 СТАРАЯ КОНФИГУРАЦИЯ (5 fps режим)")
+            print("   Без MJPEG, минимальные настройки")
+            
+            cap = cv2.VideoCapture(USB_DEVICE)
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
+            
+            # Получаем параметры
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            actual_fps = cap.get(cv2.CAP_PROP_FPS)
+            actual_fourcc = int(cap.get(cv2.CAP_PROP_FOURCC))
+            
+            picam2 = None
+            
+        else:
+            # ===== НОВАЯ ОПТИМИЗИРОВАННАЯ ВЕРСИЯ =====
+            print("\n🟢 НОВАЯ КОНФИГУРАЦИЯ (MJPEG, 90 fps)")
+            
+            cap = cv2.VideoCapture(USB_DEVICE, cv2.CAP_V4L2)
+            
+            # Устанавливаем MJPEG формат
+            fourcc = cv2.VideoWriter_fourcc('M', 'J', 'P', 'G')
+            cap.set(cv2.CAP_PROP_FOURCC, fourcc)
+            
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
+            cap.set(cv2.CAP_PROP_FPS, CAMERA_FPS_TARGET)
+            
+            # Получаем параметры
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            actual_fps = cap.get(cv2.CAP_PROP_FPS)
+            actual_fourcc = int(cap.get(cv2.CAP_PROP_FOURCC))
+            
+            picam2 = None
         
-        # Устанавливаем MJPEG формат для скорости
-        fourcc = cv2.VideoWriter_fourcc('M', 'J', 'P', 'G')
-        cap.set(cv2.CAP_PROP_FOURCC, fourcc)
+        # Декодируем FOURCC для вывода
+        fourcc_str = ""
+        if actual_fourcc != 0:
+            fourcc_str = chr(actual_fourcc & 0xFF) + chr((actual_fourcc >> 8) & 0xFF) + \
+                         chr((actual_fourcc >> 16) & 0xFF) + chr((actual_fourcc >> 24) & 0xFF)
         
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
-        cap.set(cv2.CAP_PROP_FPS, 90)
+        print(f"\n✅ USB camera: {width}x{height} @ {actual_fps:.1f}fps")
+        print(f"   FOURCC: {fourcc_str} ({actual_fourcc})")
         
-        # Получаем реальные параметры
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        actual_fps = cap.get(cv2.CAP_PROP_FPS)
-        actual_fourcc = int(cap.get(cv2.CAP_PROP_FOURCC))
-        
-        # Декодируем FOURCC
-        fourcc_str = chr(actual_fourcc & 0xFF) + chr((actual_fourcc >> 8) & 0xFF) + \
-                     chr((actual_fourcc >> 16) & 0xFF) + chr((actual_fourcc >> 24) & 0xFF)
-        
-        picam2 = None
-        print(f"✅ USB camera: {width}x{height} @ {actual_fps:.1f}fps")
-        print(f"   FOURCC: {fourcc_str}")
+        # Обновляем глобальные переменные разрешения
+        CAMERA_WIDTH = width
+        CAMERA_HEIGHT = height
         
         # Проверка захвата
         ret, test_frame = cap.read()
@@ -1349,8 +1402,14 @@ def init_camera():
             sys.exit(1)
         else:
             print(f"✅ Test frame captured: {test_frame.shape}")
+            # Еще раз обновляем из реального кадра
+            CAMERA_WIDTH = test_frame.shape[1]
+            CAMERA_HEIGHT = test_frame.shape[0]
+            width, height = CAMERA_WIDTH, CAMERA_HEIGHT
+            print(f"   Реальное разрешение кадра: {CAMERA_WIDTH}x{CAMERA_HEIGHT}")
             
-    else:
+    else:  # CSI камера
+        print("  Режим: CSI камера (picamera2)")
         picam2 = Picamera2(0)
         config = picam2.create_video_configuration(
             main={"size": (CAMERA_WIDTH, CAMERA_HEIGHT), "format": "RGB888"},
@@ -1360,10 +1419,16 @@ def init_camera():
         picam2.configure(config)
         picam2.start()
         time.sleep(1)
-        width, height = CAMERA_WIDTH, CAMERA_HEIGHT
+        
+        # Получаем тестовый кадр для определения реального размера
+        test_frame = picam2.capture_array()
+        width, height = test_frame.shape[1], test_frame.shape[0]
+        CAMERA_WIDTH, CAMERA_HEIGHT = width, height
         cap = None
         print(f"✅ CSI camera: {width}x{height}")
+        print(f"✅ Test frame captured: {test_frame.shape}")
 
+    # Масштабирование матрицы камеры под реальное разрешение
     if width != CALIB_WIDTH:
         scale = width / CALIB_WIDTH
         camera_matrix[0,0] *= scale
@@ -1371,6 +1436,8 @@ def init_camera():
         camera_matrix[0,2] *= scale
         camera_matrix[1,2] *= scale
         print(f"✅ Camera matrix scaled x{scale:.2f}")
+    
+    return width, height  # Возвращаем для использования
 
 def get_frame():
     if CAMERA_TYPE == 'usb':
@@ -1740,7 +1807,66 @@ def main():
     scale_y = 1.0
     fullscreen_mode = False
 
-    init_camera()
+    # Параметры кнопок
+    button_width = 100
+    button_height = 40
+    margin = 10
+    n_buttons = 9
+    
+    # ===== ИНИЦИАЛИЗАЦИЯ КАМЕРЫ (ПЕРВОЙ) =====
+    init_camera()  # Теперь width и height определены
+    
+    # ===== СОЗДАНИЕ КНОПОК С РЕАЛЬНЫМИ КООРДИНАТАМИ =====
+    start_x = max(10, width - (button_width + margin) * n_buttons - 10)
+    
+    print(f"\n📌 Создание кнопок под разрешение {width}x{height}")
+    print(f"   Start X: {start_x}")
+    
+    buttons = [
+        # Индекс 0: VIDEO ONLY
+        Button(start_x + (button_width+margin)*0, 10, button_width, button_height,
+               "VIDEO ONLY", (80,80,80), (130,130,130),
+               toggle=True, active_color=(50,150,50), active=VIDEO_ONLY_DEFAULT),
+        
+        # Индекс 1: MODEL
+        Button(start_x + (button_width+margin)*1, 10, button_width, button_height,
+               "MODEL", (80,80,80), (130,130,130),
+               toggle=True, active_color=(50,150,50), active=MODEL_DEFAULT_VISIBLE),
+        
+        # Индекс 2: SAVE
+        Button(start_x + (button_width+margin)*2, 10, button_width, button_height,
+               "SAVE", (50,150,50), (100,255,100)),
+        
+        # Индекс 3: LOAD
+        Button(start_x + (button_width+margin)*3, 10, button_width, button_height,
+               "LOAD", (50,50,150), (100,100,255)),
+        
+        # Индекс 4: RESET
+        Button(start_x + (button_width+margin)*4, 10, button_width, button_height,
+               "RESET", (150,150,50), (255,255,100)),
+        
+        # Индекс 5: ATTACH
+        Button(start_x + (button_width+margin)*5, 10, button_width, button_height,
+               "ATTACH", (150,50,150), (255,100,255)),
+        
+        # Индекс 6: REFINE
+        Button(start_x + (button_width+margin)*6, 10, button_width, button_height,
+               "REFINE", (30,80,160), (60,140,255),
+               toggle=True, active_color=(0,160,220), active=REFINE_DEFAULT),
+        
+        # Индекс 7: FULL
+        Button(start_x + (button_width+margin)*7, 10, button_width, button_height,
+               "FULL", (100,100,100), (150,150,150)),
+        
+        # Индекс 8: EXIT
+        Button(start_x + (button_width+margin)*8, 10, button_width, button_height,
+               "EXIT", (150,50,50), (255,100,100)),
+    ]
+    # Обновляем позиции кнопок
+    for i, btn in enumerate(buttons):
+        btn.x = start_x + (button_width + margin) * i
+        print(f"   Button {i}: {btn.text} at x={btn.x}")
+
     # Тестовый захват кадра
     test_frame = get_frame()
     if test_frame is None:
@@ -1811,44 +1937,7 @@ def main():
     cv2.createTrackbar('Offset Z_fine',   window_controls, slider_defaults['Offset Z_fine'],   1000, nothing)
     cv2.createTrackbar('Mode: 0pts/1wire/2face', window_controls, slider_defaults['Mode'], 2, nothing)
 
-    # ===== КНОПКИ =====
-    # Порядок: [VIDEO ONLY] [MODEL] [SAVE] [LOAD] [RESET] [ATTACH] [REFINE] [FULL] [EXIT]
-    button_width  = 100
-    button_height = 40
-    margin = 10
-    n_buttons = 9
-    start_x = width - (button_width + margin) * n_buttons
 
-    buttons = [
-        Button(start_x + (button_width+margin)*0, 10, button_width, button_height,
-            "VIDEO ONLY", (80,80,80), (130,130,130),
-            toggle=True, active_color=(50,150,50), active=VIDEO_ONLY_DEFAULT),  # active=False - неактивна
-        Button(start_x + (button_width+margin)*1, 10, button_width, button_height,
-               "MODEL",  (80,80,80),    (130,130,130),
-               toggle=True, active_color=(50,150,50), active=MODEL_DEFAULT_VISIBLE),
-        Button(start_x + (button_width+margin)*2, 10, button_width, button_height,
-               "SAVE",   (50,150,50),   (100,255,100)),
-        Button(start_x + (button_width+margin)*3, 10, button_width, button_height,
-               "LOAD",   (50,50,150),   (100,100,255)),
-        Button(start_x + (button_width+margin)*4, 10, button_width, button_height,
-               "RESET",  (150,150,50),  (255,255,100)),
-        Button(start_x + (button_width+margin)*5, 10, button_width, button_height,
-               "ATTACH", (150,50,150),  (255,100,255)),
-        Button(start_x + (button_width+margin)*6, 10, button_width, button_height,
-               "REFINE", (30,80,160),   (60,140,255),
-               toggle=True, active_color=(0,160,220), active=REFINE_DEFAULT),
-        Button(start_x + (button_width+margin)*7, 10, button_width, button_height,
-               "FULL",   (100,100,100), (150,150,150)),
-        Button(start_x + (button_width+margin)*8, 10, button_width, button_height,
-               "EXIT",   (150,50,50),   (255,100,100)),
-    ]
-
-    # ========== ВСТАВЬТЕ ЭТОТ БЛОК ЗДЕСЬ ==========
-    print(f"\n📌 Buttons created: {len(buttons)}")
-    print(f"   Frame width: {width}, Start X: {start_x}")
-    for i, btn in enumerate(buttons):
-        print(f"   Button {i}: {btn.text} at x={btn.x}, y={btn.y}")
-    # ==============================================
 
     # Кнопка MODEL по умолчанию активна (модель показывается)
     # for btn in buttons:
@@ -2072,26 +2161,6 @@ def main():
 
             # Проверяем режим VIDEO ONLY (ОПРЕДЕЛЯЕМ В САМОМ НАЧАЛЕ)
             video_only_mode = btn_video_only is not None and btn_video_only.active
-
-            # ===== ОТЛАДКА КАЖДЫЕ 60 КАДРОВ =====
-            if frame_count % 60 == 0:
-                # print(f"\n=== DEBUG FRAME {frame_count} ===")
-                # print(f"Time: {time.time():.2f}")
-                # print(f"FPS: {fps:.2f}")
-                # print(f"Frame shape: {frame.shape}")
-                # print(f"Video only mode: {video_only_mode}")
-                # print(f"Marker detected: {marker_detected if 'marker_detected' in locals() else False}")
-                
-                # Проверка окон
-                try:
-                    main_visible = cv2.getWindowProperty(window_main, cv2.WND_PROP_VISIBLE)
-                    controls_visible = cv2.getWindowProperty(window_controls, cv2.WND_PROP_VISIBLE)
-                    print(f"Main window visible: {main_visible}")
-                    print(f"Controls window visible: {controls_visible}")
-                except Exception as e:
-                    print(f"Window check failed: {e}")
-                
-                print("===============================\n")
 
             if video_only_mode:
                 # В режиме VIDEO ONLY пропускаем всю обработку
