@@ -174,8 +174,69 @@ class VideoCaptureTester:
             if os.path.exists(filename):
                 file_size = os.path.getsize(filename) / (1024 * 1024)  # в MB
                 print(f"  Размер файла: {file_size:.2f} MB")
+                print(f"  Размер на кадр: {file_size*1024/frame_count:.2f} KB/кадр")
             
             return True
+    
+    def run_single_test(self):
+        """Запуск одного выбранного теста"""
+        print("\n" + "="*80)
+        print("🎯 ВЫБОР ОДНОГО РЕЖИМА ТЕСТИРОВАНИЯ")
+        print("="*80)
+        
+        # Выбор бэкенда
+        print("\nВыберите бэкенд (формат):")
+        print("1. MJPEG (сжатый)")
+        print("2. YUYV (несжатый)")
+        backend_choice = input("Ваш выбор (1-2): ").strip()
+        backend = 'MJPEG' if backend_choice == '1' else 'YUYV'
+        
+        # Выбор разрешения
+        print("\nВыберите разрешение:")
+        resolutions = {
+            '1': (1920, 1200, '1920x1200 (Max)'),
+            '2': (1280, 720, '1280x720 (720p)'),
+            '3': (640, 480, '640x480 (VGA)'),
+            '4': (320, 240, '320x240 (QVGA)')
+        }
+        
+        for key, (w, h, name) in resolutions.items():
+            print(f"{key}. {name}")
+        
+        res_choice = input("Ваш выбор (1-4): ").strip()
+        if res_choice not in resolutions:
+            print("❌ Неверный выбор, используем 640x480")
+            width, height = 640, 480
+        else:
+            width, height = resolutions[res_choice][0], resolutions[res_choice][1]
+        
+        # Выбор FPS
+        print("\nВведите целевой FPS (например: 30, 60, 90, 120):")
+        try:
+            target_fps = int(input("FPS: ").strip())
+        except ValueError:
+            print("❌ Неверное значение, используем 30 fps")
+            target_fps = 30
+        
+        # Выбор длительности
+        print("\nВведите длительность записи в секундах:")
+        try:
+            duration = float(input("Длительность (сек): ").strip())
+            if duration <= 0:
+                duration = 10
+                print("⚠️ Длительность должна быть > 0, используем 10 сек")
+        except ValueError:
+            duration = 10
+            print("⚠️ Неверное значение, используем 10 сек")
+        
+        # Запуск теста
+        print(f"\n🚀 Запуск теста: {backend} | {width}x{height} | {target_fps} fps | {duration} сек")
+        confirm = input("Подтвердить? (y/n): ").strip().lower()
+        
+        if confirm == 'y':
+            self.test_resolution(backend, width, height, target_fps, duration)
+        else:
+            print("❌ Тест отменен")
     
     def run_all_tests(self, short_test=False):
         """
@@ -268,8 +329,6 @@ def main():
     print("🎬 ТЕСТОВЫЙ ЗАХВАТ ВИДЕО С КАМЕРЫ ГЛОБАЛЬНОГО ЗАТВОРА")
     print("="*80)
     
-
-    
     # Создаем тестер
     tester = VideoCaptureTester(device_id=DEVICE_ID, output_dir=OUTPUT_DIR)
     
@@ -277,19 +336,21 @@ def main():
     tester.get_camera_info()
     
     # Спрашиваем режим тестирования
-    print("\nВыберите режим тестирования:")
+    print("\n" + "="*80)
+    print("📋 МЕНЮ ТЕСТИРОВАНИЯ")
+    print("="*80)
     print("1. Полное тестирование (10 сек на режим)")
     print("2. Быстрое тестирование (5 сек на режим)")
     print("3. Только MJPEG режимы")
     print("4. Только YUYV режимы")
+    print("5. Один режим (свой выбор)")
+    print("6. Очистка старых видео")
     
-    choice = input("\nВаш выбор (1-4) [по умолчанию 2]: ").strip() or "2"
+    choice = input("\nВаш выбор (1-6) [по умолчанию 2]: ").strip() or "2"
     
     if choice == "1":
-        duration = 10
         tester.run_all_tests(short_test=False)
     elif choice == "2":
-        duration = 5
         tester.run_all_tests(short_test=True)
     elif choice == "3":
         # Только MJPEG
@@ -300,13 +361,20 @@ def main():
             {'backend': 'MJPEG', 'width': 1280, 'height': 720, 'fps': 90},
             {'backend': 'MJPEG', 'width': 640, 'height': 480, 'fps': 90},
         ]
+        print("\nВведите длительность записи для каждого режима (сек):")
+        try:
+            duration = float(input("Длительность: ").strip())
+        except ValueError:
+            duration = 10
+            print(f"⚠️ Используем {duration} сек")
+            
         for mode in modes:
             tester.test_resolution(
                 backend=mode['backend'],
                 width=mode['width'],
                 height=mode['height'],
                 target_fps=mode['fps'],
-                duration=10
+                duration=duration
             )
     elif choice == "4":
         # Только YUYV
@@ -316,20 +384,38 @@ def main():
             {'backend': 'YUYV', 'width': 640, 'height': 480, 'fps': 30},
             {'backend': 'YUYV', 'width': 320, 'height': 240, 'fps': 90},
         ]
+        print("\nВведите длительность записи для каждого режима (сек):")
+        try:
+            duration = float(input("Длительность: ").strip())
+        except ValueError:
+            duration = 10
+            print(f"⚠️ Используем {duration} сек")
+            
         for mode in modes:
             tester.test_resolution(
                 backend=mode['backend'],
                 width=mode['width'],
                 height=mode['height'],
                 target_fps=mode['fps'],
-                duration=10
+                duration=duration
             )
+    elif choice == "5":
+        # Один режим
+        tester.run_single_test()
+    elif choice == "6":
+        # Очистка старых видео
+        try:
+            days = int(input("Удалить файлы старше N дней [7]: ").strip() or "7")
+            tester.cleanup_old_videos(days)
+        except ValueError:
+            tester.cleanup_old_videos(7)
     
     print(f"\n✅ Все тесты завершены!")
     print(f"📁 Видео сохранены в: {OUTPUT_DIR}")
     print("\nДля анализа видео можно использовать:")
+    print("  ffprobe -v error -select_streams v:0 -show_entries stream=nb_frames -of default=noprint_wrappers=1:nokey=1 файл.avi")
     print("  ffprobe -v error -select_streams v:0 -show_entries stream=r_frame_rate -of default=noprint_wrappers=1:nokey=1 файл.avi")
-    print("  или просто открыть в медиаплеере на другом компьютере")
+    print("  ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 файл.avi")
 
 if __name__ == "__main__":
     main()

@@ -10,6 +10,9 @@ old name:
 """
 
 '''
+export DISPLAY=:0  && screen -X -S bird_detector quit
+===============================================================
+
 export DISPLAY=:0
 
 1. убить сессию:
@@ -55,7 +58,9 @@ pip install picamera2 numpy opencv-python
 ==== pi venv ==== 
 source /home/pi/projects/Hailo8_projects/cam_calibr/venv/bin/activate
 
-cd 006_code_flask_web_stream___RPI
+cd /home/pi/projects/Hailo8_projects/Pics_keeper/006_code_flask_web_stream___RPI
+
+python3 05_flask_webcam_stream__RPI.py
 
 deactivate 
 

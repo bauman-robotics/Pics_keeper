@@ -2,6 +2,11 @@
 """
 Тест FPS и захват видео через V4L2 (без OpenCV)
 Сохраняет видео для последующего анализа
+
+v4l2-ctl --list-devices
+v4l2-ctl -d /dev/video0 --list-ctrls
+v4l2-ctl -d /dev/video8 --all
+media-ctl -p -d /dev/media5
 """
 
 import subprocess
@@ -291,6 +296,7 @@ def main():
     
     # Параметры
     DEVICE = 1  # У вас /dev/video1
+    DEVICE = 16  # У вас /dev/video16
     OUTPUT_DIR = "v4l2_capture_test"
     
     # Создаем тестер
