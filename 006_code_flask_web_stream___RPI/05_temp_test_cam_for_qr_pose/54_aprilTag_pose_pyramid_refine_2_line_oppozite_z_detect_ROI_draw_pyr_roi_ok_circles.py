@@ -47,13 +47,22 @@ except:
     DISPLAY_HEIGHT = 720
     print(f"\n⚠️ Could not detect screen size, using {DISPLAY_WIDTH}x{DISPLAY_HEIGHT}")
 
+# ===== РАЗМЕР ШРИФТА ДЛЯ ИНФОРМАЦИИ НА КАДРЕ =====
+FONT_SCALE = 0.7  # Можно увеличить: 0.7, 0.8, 1.0, 1.2
+FONT_THICKNESS = 2  # Толщина линий шрифта
+LINE_SPACING = 40  # Межстрочный интервал в пикселях (базовый)
+
 # ============================================================================
 # ОСНОВНЫЕ НАСТРОЙКИ
 # ============================================================================
 
-CAMERA_TYPE = 'csi'
-CAMERA_WIDTH = 1536
-CAMERA_HEIGHT = 864
+CAMERA_TYPE = 'usb' # 'usb'  'csi'
+USB_DEVICE = '/dev/video16'
+CAMERA_WIDTH = 1920
+CAMERA_HEIGHT = 1200
+
+#CAMERA_WIDTH = 1536
+#CAMERA_HEIGHT = 864
 #CAMERA_WIDTH = 640
 #CAMERA_HEIGHT = 480
 
@@ -1285,7 +1294,8 @@ def init_camera():
     dist_coeffs = np.load(DIST_COEFFS_FILE)
 
     if CAMERA_TYPE == 'usb':
-        cap = cv2.VideoCapture(0)
+        #cap = cv2.VideoCapture(0)
+        cap = cv2.VideoCapture(USB_DEVICE, cv2.CAP_V4L2)
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -2185,11 +2195,18 @@ def main():
             if refine_str:
                 info_lines.append(refine_str)
 
-            y_pos = height - len(info_lines) * 22 - 10
+            #y_pos = height - len(info_lines) * 22 - 10
+            # for line in info_lines:
+            #     cv2.putText(frame, line, (10, y_pos),
+            #                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1)
+            #     y_pos += 22
+
+            y_pos = height - len(info_lines) * int(LINE_SPACING * FONT_SCALE) - 20
+
             for line in info_lines:
                 cv2.putText(frame, line, (10, y_pos),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1)
-                y_pos += 22
+                            cv2.FONT_HERSHEY_SIMPLEX, FONT_SCALE, (255,255,255), FONT_THICKNESS)
+                y_pos += int(LINE_SPACING * FONT_SCALE)                
 
             # ================================================================
             # ПОКАЗ КАДРА
