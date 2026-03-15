@@ -1,0 +1,27 @@
+# python3 -m venv venv
+# source venv/bin/activate
+# pip install -r requirements.txt
+
+# python -v
+# Python 3.12.3 (main, Jan 17 2025, 18:03:48)
+
+# python3.12 -m venv venv
+# pip install --upgrade pip setuptools wheel
+
+# =====
+# pip freeze > requirements_1.txt
+# Этот метод создаст файл со всеми установленными пакетами и их точными версиями.
+# ===
+
+opencv-python>=4.8.0
+numpy>=1.24.0
+pyapriltags>=3.3.0
+PyYAML>=6.0
+picamera2>=0.3.0
+
+
+
+# matplotlib>=3.5.0
+# Pillow>=9.0.0
+# tqdm>=4.64.0
+# PyGObject>=3.40.0

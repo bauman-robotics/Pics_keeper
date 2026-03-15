@@ -1,0 +1,13 @@
+# Конфигурация CSI камеры (Raspberry Pi Camera Module)
+camera:
+  type: "csi"
+  width: 1920
+  height: 1200
+  fps: 30
+  format: "RGB888"  # RGB888, YUV420, MJPEG, H264
+  buffers: 4
+  calibration:
+    matrix_file: "config/camera/calibration/camera_matrix_imx708.npy"
+    dist_file: "config/camera/calibration/dist_coeffs_imx708.npy"
+    calib_width: 640
+    calib_height: 480

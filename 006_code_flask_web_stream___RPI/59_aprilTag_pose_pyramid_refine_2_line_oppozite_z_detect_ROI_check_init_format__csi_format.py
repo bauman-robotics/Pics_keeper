@@ -13,7 +13,7 @@ export DISPLAY=:0
 
 source /home/pi/projects/Hailo8_projects/Pics_keeper/venv/bin/activate
 cd /home/pi/projects/Hailo8_projects/Pics_keeper/006_code_flask_web_stream___RPI/
-python3 42_aprilTag_pose_pyramid_refine_2_line_oppozite_z.py
+python3 59_aprilTag_pose_pyramid_refine_2_line_oppozite_z_detect_ROI_check_init_format__csi_format.py
 
 deactivate
 """
@@ -74,7 +74,7 @@ CAMERA_FPS = 30
 # Режимы работы камеры:
 #   "NEW"  - новая оптимизированная версия (MJPEG, 90 fps)
 #   "OLD"  - старая версия (для сравнения и отладки)
-CAMERA_CONFIG_MODE = "OLD"  # По умолчанию используем новую версию
+CAMERA_CONFIG_MODE = "NEW"  # По умолчанию используем новую версию
 
 
 # Режимы инициализации USB камеры:
@@ -2299,7 +2299,7 @@ def main():
                         last_known_tvec = tvec.copy()
                         last_apriltag_corners = target_img_corners.copy()
 
-                        cv2.drawFrameAxes(frame, camera_matrix, dist_coeffs, rvec, tvec, 0.05)
+                        #cv2.drawFrameAxes(frame, camera_matrix, dist_coeffs, rvec, tvec, 0.05)
 
                         roll, pitch, yaw = rotation_vector_to_euler(rvec)
                         distance = np.linalg.norm(tvec)

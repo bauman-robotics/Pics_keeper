@@ -1,0 +1,73 @@
+# Основной конфигурационный файл проекта
+project:
+  name: "AprilTag Tracker"
+  version: "2.0"
+  description: "3D model tracking with AprilTag markers"
+
+# Выбор камеры
+camera:
+  type: "csi"  # "usb" или "csi"
+  config_file: "config/camera/camera_csi.yaml"
+
+# Настройки AprilTag
+apriltag:
+  family: "tag36h11"
+  target_id: 3
+  size_mm: 18.0
+  detector:
+    nthreads: 4
+    quad_decimate: 1.0
+    quad_sigma: 0.0
+    refine_edges: 1
+    decode_sharpening: 0.25
+    debug: 0
+
+# Параметры усеченной пирамиды
+pyramid:
+  base_size_mm: 40.0
+  top_size_mm: 24.0
+  angle_deg: 45.0
+  line_width_mm: 2.0
+  reproj_threshold: 25.0
+  roi_margin: 4.0
+
+# 3D модель
+model:
+  path: "models/model_simple.obj"
+  position_config: "config/model_position.yaml"
+  default_visible: false
+
+# Отображение
+display:
+  scale: 0.95
+  font_scale: 0.7
+  font_thickness: 2
+  line_spacing: 40
+
+# UI элементы
+ui:
+  buttons:
+    width: 100
+    height: 40
+    margin: 10
+    video_only_default: true
+    model_default: false
+    refine_default: false
+
+# Отладка
+debug:
+  pyramid: false
+  draw_lines: true
+  draw_classified: true
+  draw_roi: true
+  draw_intersections: true
+  debug_text: true
+  windows_control_en: true
+  log_axes: true  # Новая опция для логирования осей
+  log_file: "logs/axes_debug.log"  # Файл для логов осей
+  verbose: false # false  true  # НОВЫЙ МАКРОС для консольного вывода (направление осей)
+# Логирование
+logging:
+  level: "INFO"
+  file: "logs/aprilTag_tracker.log"
+  console: true

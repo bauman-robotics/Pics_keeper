@@ -15,6 +15,11 @@ source /home/pi/projects/Hailo8_projects/Pics_keeper/venv/bin/activate
 cd /home/pi/projects/Hailo8_projects/Pics_keeper/006_code_flask_web_stream___RPI/
 python3 60_aprilTag_pose_pyramid_refine_2_line_oppozite_z_detect_ROI_check_init_format__csi_format_G_shutter_calibr.py
 
+
+screen -X -S bird_detector quit && export DISPLAY=:0 && source /home/pi/projects/Hailo8_projects/Pics_keeper/venv/bin/activate
+cd /home/pi/projects/Hailo8_projects/Pics_keeper/006_code_flask_web_stream___RPI/
+
+
 deactivate
 """
 
@@ -88,7 +93,7 @@ CAMERA_INIT_MODE = "MJPEG"  # Рекомендуется MJPEG для макси
 CAMERA_FPS_TARGET = 90  # Целевой FPS (если поддерживается камерой)
 
 # Индекс USB камеры (из v4l2-ctl --list-devices)
-USB_DEVICE = 9  # Ваша камера на /dev/video16
+USB_DEVICE = 8  # Ваша камера на /dev/video16
 
 
 # ============================================================================

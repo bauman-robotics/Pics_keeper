@@ -1,0 +1,14 @@
+# Конфигурация USB камеры
+camera:
+  type: "usb"
+  device: 16  # /dev/video16
+  width: 1920
+  height: 1200
+  fps_target: 90
+  init_mode: "MJPEG"  # SIMPLE, MJPEG, V4L2, AUTO
+  config_mode: "NEW"  # NEW, OLD
+  calibration:
+    matrix_file: "config/camera/calibration/camera_matrix_imx708.npy"
+    dist_file: "config/camera/calibration/dist_coeffs_imx708.npy"
+    calib_width: 640
+    calib_height: 480
