@@ -6,7 +6,9 @@ import os
 # ===== НАСТРОЙКИ =====
 # Укажите путь к папке со снимками (ваш путь)
 # IMAGES_PATH = '/home/ypc/projects/Hailo-8_projects/04_Pics_keeper/Pics_keeper/006_code_flask_web_stream___RPI/static/photos/*.jpg'
-IMAGES_PATH = '/home/ypc/projects/Hailo-8_projects/04_Pics_keeper/Pics_keeper/006_code_flask_web_stream___RPI/imx708_calibr_photos/*.jpg'
+# IMAGES_PATH = '/home/ypc/projects/Hailo-8_projects/04_Pics_keeper/Pics_keeper/006_code_flask_web_stream___RPI/imx708_calibr_photos/*.jpg'
+
+IMAGES_PATH = '/home/ypc/projects/Hailo-8_projects/04_Pics_keeper/Pics_keeper/006_code_flask_web_stream___RPI/photos_calibr_g_shutter_IR/*.jpg'
 
 # Размер шахматной доски (количество внутренних углов)
 # Обычно это (ширина-1) x (высота-1) в клетках
@@ -18,13 +20,13 @@ SQUARE_SIZE_MM = 50  # если ваша клетка 50 мм
 # ===== ПАРАМЕТРЫ РАЗРЕШЕНИЯ =====
 # Укажите разрешение, в котором проводилась съемка
 # Это важно для правильного масштабирования параметров
-CALIBRATION_WIDTH = 640   # ширина снимков для калибровки
-CALIBRATION_HEIGHT = 480  # высота снимков для калибровки
+CALIBRATION_WIDTH = 1920   # ширина снимков для калибровки
+CALIBRATION_HEIGHT = 1200  # высота снимков для калибровки
 
 # Целевое разрешение, для которого будут масштабированы параметры
 # Оставьте None, если масштабирование не нужно
-TARGET_WIDTH = 1280        # желаемая ширина (или None)
-TARGET_HEIGHT = 720        # желаемая высота (или None)
+TARGET_WIDTH = 1920        # желаемая ширина (или None)
+TARGET_HEIGHT = 1200        # желаемая высота (или None)
 
 # ===== ПОДГОТОВКА =====
 # Критерии остановки итеративного уточнения углов
