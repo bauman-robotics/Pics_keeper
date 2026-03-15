@@ -56,7 +56,7 @@ logs/
 #config/model_position.json
 
 # Calibration files (бинарные файлы калибровки)
-config/camera/calibration/*.npy
+#config/camera/calibration/*.npy
 !config/camera/calibration/*.example
 
 # Models (3D модели могут быть большими)
