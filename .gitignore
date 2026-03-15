@@ -227,3 +227,5 @@ imx708_calibr_photos/
 
 006_code_flask_web_stream___RPI/test_frame_csi.jpg
 
+006_code_flask_web_stream___RPI/calibration_results_g_shutter_IR_full/
+006_code_flask_web_stream___RPI/photos_calibr_g_shutter_IR/
